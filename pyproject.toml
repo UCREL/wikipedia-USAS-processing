@@ -1,0 +1,49 @@
+[project]
+name = "wikipedia-usas-processing"
+version = "0.1.0"
+authors = [
+    { name = "UCREL Research Centre", email = "ucrel@lancaster.ac.uk" },
+]
+license = "Apache-2.0"
+license-files = [
+    "LICENSE",
+]
+description = "Add your description here"
+requires-python = ">=3.13, <3.15"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "coverage>=7.13.5",
+    "pytest>=9.0.2",
+    "ruff>=0.15.7",
+    "ty>=0.0.26",
+]
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+
+[tool.ruff.lint]
+# Enable the isort rules.
+extend-select = ["I"]
+
+#[tool.ruff.lint.isort]
+#known-third-party = ["src", "tests"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = [
+    "tests"
+]
+
+[tool.coverage.run]
+branch = true
+source = [
+    "src"
+]
+command_line = "-m pytest"
+
+[tool.coverage.report]
+show_missing = true
