@@ -19,10 +19,6 @@ languages:
     iso_639_3: dan
     wikipedia_code: da
     training: True
-  - language: Korean
-    iso_639_3: ko
-    wikipedia_code: ko
-    training: True
   - language: Italian
     iso_639_3: ita
     wikipedia_code: it
