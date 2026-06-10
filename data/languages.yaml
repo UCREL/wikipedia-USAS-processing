@@ -1,0 +1,53 @@
+languages:
+  - language: English
+    iso_639_3: eng
+    wikipedia_code: en
+    training: True
+  - language: Dutch
+    iso_639_3: nld
+    wikipedia_code: nl
+    training: True
+  - language: Spanish
+    iso_639_3: spa
+    wikipedia_code: es
+    training: True
+  - language: Hindi
+    iso_639_3: hin
+    wikipedia_code: hi
+    training: False
+  - language: Danish
+    iso_639_3: dan
+    wikipedia_code: da
+    training: True
+  - language: Korean
+    iso_639_3: ko
+    wikipedia_code: ko
+    training: True
+  - language: Italian
+    iso_639_3: ita
+    wikipedia_code: it
+    training: True
+  - language: Portuguese
+    iso_639_3: por
+    wikipedia_code: pt
+    training: True
+  - language: Chinese
+    iso_639_3: zho
+    wikipedia_code: zh
+    training: True
+  - language: Finnish
+    iso_639_3: fin
+    wikipedia_code: fi
+    training: True
+  - language: Irish
+    iso_639_3: gle
+    wikipedia_code: ga
+    training: True
+  - language: Welsh
+    iso_639_3: cym
+    wikipedia_code: cy
+    training: True
+  - language: Igbo
+    iso_639_3: ibo
+    wikipedia_code: ig
+    training: False
