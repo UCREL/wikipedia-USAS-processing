@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 ## Python Guidelines
 
@@ -14,7 +14,7 @@
 ## Docstrings
 
 Document all public functions and classes using **Google-style docstrings** with
-**doctest-style examples**. See [`coding_style_format_example.py`](./coding_style_format_example.py)
+**doctest-style examples**. See @coding_style_format_example.py
 for the full reference. A minimal example:
 ```python
 def add(x: int, y: int) -> int:
