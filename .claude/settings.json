@@ -1,0 +1,58 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.env)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/id_rsa)",
+      "Read(**/id_rsa.*)",
+      "Read(**/id_ed25519)",
+      "Read(**/*.pfx)",
+      "Read(**/*credentials*)",
+      "Read(**/*secrets*)",
+      "Read(**/.aws/*)",
+      "Read(**/.ssh/*)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Edit(**/*.env)",
+      "Edit(**/*.pem)",
+      "Edit(**/*.key)",
+      "Edit(**/id_rsa)",
+      "Edit(**/id_rsa.*)",
+      "Edit(**/id_ed25519)",
+      "Edit(**/*.pfx)",
+      "Edit(**/*credentials*)",
+      "Edit(**/*secrets*)",
+      "Edit(**/.aws/*)",
+      "Edit(**/.ssh/*)",
+      "Write(**/.env)",
+      "Write(**/.env.*)",
+      "Write(**/*.env)",
+      "Write(**/*.pem)",
+      "Write(**/*.key)",
+      "Write(**/id_rsa)",
+      "Write(**/id_rsa.*)",
+      "Write(**/id_ed25519)",
+      "Write(**/*.pfx)",
+      "Write(**/*credentials*)",
+      "Write(**/*secrets*)",
+      "Write(**/.aws/*)",
+      "Write(**/.ssh/*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|Grep|Glob|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 $CLAUDE_PROJECT_DIR/.claude/hooks/block_sensitive_files.py"
+          }
+        ]
+      }
+    ]
+  }
+}
