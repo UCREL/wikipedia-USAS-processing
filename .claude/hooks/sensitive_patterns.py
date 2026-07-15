@@ -13,6 +13,8 @@ BLOCKED_PATTERNS = [
     "*credentials*",
     "*secrets*",
     ".ssh/*",
+    "data/wikipedia_pages",
+    "data/wikipedia_pages_filtered",
 ]
  
 # Which tools the permission deny rules should apply to.
