@@ -10,7 +10,20 @@ license-files = [
 ]
 description = "Add your description here"
 requires-python = ">=3.13, <3.15"
-dependencies = []
+dependencies = [
+    "datasets>=4.8.4",
+    "datatrove[io,processing]==0.9.0",
+    "mistune>=3.2.0",
+    "pip>=26.0.1",
+    "pymusas>=0.4.0",
+    "python-dotenv>=1.2.2",
+    "pyyaml>=6.0.3",
+    "rich>=14.3.3",
+    "spacy>=3.8.14",
+    "spacy-curated-transformers>=0.3.1",
+    "typer>=0.24.1",
+    "usas-validator",
+]
 
 [dependency-groups]
 dev = [
@@ -28,9 +41,6 @@ content-type = "text/markdown"
 [tool.ruff.lint]
 # Enable the isort rules.
 extend-select = ["I"]
-
-#[tool.ruff.lint.isort]
-#known-third-party = ["src", "tests"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"

@@ -3,47 +3,59 @@ languages:
     iso_639_3: eng
     wikipedia_code: en
     training: True
+    data_trove_language: english
   - language: Dutch
     iso_639_3: nld
     wikipedia_code: nl
     training: True
+    data_trove_language: dutch
   - language: Spanish
     iso_639_3: spa
     wikipedia_code: es
     training: True
+    data_trove_language: spanish
   - language: Hindi
     iso_639_3: hin
     wikipedia_code: hi
     training: False
+    data_trove_language: hin_deva
   - language: Danish
     iso_639_3: dan
     wikipedia_code: da
     training: True
+    data_trove_language: dan
   - language: Italian
     iso_639_3: ita
     wikipedia_code: it
     training: True
+    data_trove_language: ita
   - language: Portuguese
     iso_639_3: por
     wikipedia_code: pt
     training: True
+    data_trove_language: por
   - language: Chinese
     iso_639_3: zho
     wikipedia_code: zh
     training: True
+    data_trove_language: zho
   - language: Finnish
     iso_639_3: fin
     wikipedia_code: fi
     training: True
+    data_trove_language: fin
   - language: Irish
     iso_639_3: gle
     wikipedia_code: ga
-    training: True
+    training: False
+    data_trove_language: gle
   - language: Welsh
     iso_639_3: cym
     wikipedia_code: cy
-    training: True
+    training: False
+    data_trove_language: cym
   - language: Igbo
     iso_639_3: ibo
     wikipedia_code: ig
     training: False
+    data_trove_language: ibo

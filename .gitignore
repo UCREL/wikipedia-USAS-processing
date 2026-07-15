@@ -5,3 +5,8 @@ __pycache__
 .ruff_cache
 .pytest_cache
 .coverage
+.env
+log_data
+data
+! data/languages.yaml
+local_*
