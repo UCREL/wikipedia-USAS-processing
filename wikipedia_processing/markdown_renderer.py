@@ -6,12 +6,39 @@ class FineWikiPlainTextRenderer(MarkdownRenderer):
     Renders the markdown found in the HuggingFace fine-wiki dataset
     (https://huggingface.co/datasets/HuggingFaceFW/finewiki) as plain text.
 
-    In addition it removes tables, code, and if they do appear alternative text
-    for images. 
+    Tables, code (fenced/indented blocks), raw/block HTML, and image alt text
+    are dropped entirely, as is standalone block math (``$$...$$``). Inline
+    formatting markers (emphasis, strong, strikethrough, mark, insert,
+    spoilers, abbreviations) are stripped while their inner text is kept.
+    Codespans and inline HTML are kept as plain text rather than treated as
+    code/markup, since that is how they appear in this dataset.
+
+    Ordered, unordered, and nested list items are each rendered on their own
+    line. Definition lists render a term and its definition on the same
+    line as ``Term: Definition``, with subsequent terms/definitions starting
+    a new line. Footnote references are dropped and the footnote text is
+    kept inline where the footnotes block appears in the source.
 
     The Math (math equations) is not removed as this is rendered within the dataset through the
     LaTeX tags `displaystyle` and `textstyle`. The Math text is not markdown formatted
     hence why it is not removed by this renderer.
+
+    Attributes:
+        NAME: Renderer name mistune uses to identify this renderer.
+
+    Examples:
+        >>> import mistune
+        >>> render = mistune.create_markdown(renderer=FineWikiPlainTextRenderer())
+        >>> render("# Heading")
+        'Heading\\n'
+        >>> render("- item1\\n- item2")
+        'item1\\n item2\\n'
+
+        >>> render = mistune.create_markdown(
+        ...     renderer=FineWikiPlainTextRenderer(), plugins=["def_list"]
+        ... )
+        >>> render("Term\\n: Definition")
+        'Term: Definition\\n'
     """
 
     NAME = "fine_wiki_plain_text"
