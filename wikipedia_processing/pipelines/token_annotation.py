@@ -199,7 +199,9 @@ class TokenPyMUSASAnnotator(PipelineStep):
                         number_mwes_in_sentence = 0
                         for mwe_labels in tmp_mwe_labels:
                             if mwe_labels:
-                                number_mwes_in_sentence = max(mwe_labels)
+                                tmp_largest_mwe_index = max(mwe_labels)
+                                if tmp_largest_mwe_index > number_mwes_in_sentence:
+                                    number_mwes_in_sentence = tmp_largest_mwe_index
                             mwe_labels_json_serializable.append(list(mwe_labels))
                         mwe_labels = mwe_labels_json_serializable
                         number_mwes += number_mwes_in_sentence
