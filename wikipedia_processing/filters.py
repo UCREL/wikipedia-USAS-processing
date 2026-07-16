@@ -17,6 +17,10 @@ def is_in_lookup(page_id: int,
     """
     Check if page_id is in lookup dataset if so returns True else returns False.
 
+    To note the lookup truncates the document and lookup title to 255 bytes this
+    is because Wikipedia titles when saved in the GAFA dataset are truncated to
+    255 bytes.
+
     Args:
         page_id: A page ID to lookup.
         page_title: A page title to lookup if use_title is True.
@@ -46,7 +50,8 @@ def is_in_lookup(page_id: int,
         # titles in the lookup are truncated to 255 bytes whereby a character
         # can be up to 4 bytes due to UTF-8 encoding
         title = truncate_to_255_bytes(page_title)
-        if title != lookup[page_id]:
+        lookup_title = truncate_to_255_bytes(lookup[page_id])
+        if title != lookup_title:
             return False
     return True
 
