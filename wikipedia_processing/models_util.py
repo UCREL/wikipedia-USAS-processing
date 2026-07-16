@@ -1,8 +1,16 @@
 from typing import Callable, Iterable
 
 import spacy
-from wikipedia_processing.models_install import LANGUAGE_2_PYMUSAS_SPACY_MODEL, Languages, SpacyModel, pip_install_model, PYMUSAS_SPACY_MODEL_2_URL, SPACY_MODEL_2_URL
 from spacy.tokens import Doc
+
+from wikipedia_processing.models_install import (
+    LANGUAGE_2_PYMUSAS_SPACY_MODEL,
+    PYMUSAS_SPACY_MODEL_2_URL,
+    SPACY_MODEL_2_URL,
+    Languages,
+    SpacyModel,
+    pip_install_model,
+)
 
 
 def get_language_tagger(language: Languages) -> spacy.Language:
