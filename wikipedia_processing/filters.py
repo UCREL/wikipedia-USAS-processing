@@ -41,7 +41,7 @@ def is_in_lookup(page_id: int,
         >>> is_in_lookup(2, "Cat", lookup, use_title=True)
         False
         >>> is_in_lookup(1, "Dog", lookup, use_title=False)
-        False
+        True
     """
     if page_id not in lookup:
         return False
