@@ -42,6 +42,8 @@ class WikipediaMarkdownFormatter(BaseFormatter):
             'bold text\\n'
         """
         try:
+            # The parsed text always adds a new line at the end of the text if
+            # the new line does not already exist
             parsed_text = self.claude_markdown_parser(text)
             if not isinstance(parsed_text, str):
                 raise TypeError("The Wiki Markdown Formatter returned a non-string value")
