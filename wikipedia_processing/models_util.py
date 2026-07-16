@@ -24,10 +24,10 @@ def get_language_tagger(language: Languages) -> spacy.Language:
     - 'ner' for all languages.
 
     Args:
-        language: The language that the spacy pipeline should be constructed for.
+        language: The language that the spaCy pipeline should be constructed for.
 
     Returns:
-        A language specific spaCy pipeline  with a PyMUSAS rule-based tagger pipeline component added.
+        A language specific spaCy pipeline with a PyMUSAS rule-based tagger pipeline component added.
 
     Raises:
         ValueError: If the given language is not supported.
@@ -68,17 +68,22 @@ def get_language_tagger(language: Languages) -> spacy.Language:
 def spacy_sentence_splitter(spacy_pipeline: spacy.Language) -> Callable[[str], Iterable[tuple[str, tuple[int, int]]]]:
     """
     Returns a function that splits a given text into sentences using the given
-    Spacy pipeline.
+    spaCy pipeline.
 
     Args:
-        spacy_pipeline: A Spacy pipeline to use for sentence splitting.
-            We assume that the
+        spacy_pipeline: A spaCy pipeline to use for sentence splitting. We assume
+            that the pipeline includes a component (e.g. `parser`, `senter`, or
+            `sentencizer`) that sets sentence boundaries on the resulting `Doc`.
 
     Returns:
-        A function that takes a string and returns an iterable of strings and their character offsets,
-        where each string is a sentence in the input text.
+        A function that takes a string and returns an iterable of `(sentence_text,
+        (start_char, end_char))` tuples, one per sentence in the input text, in
+        order.
+
     Raises:
-        ValueError: If the given spaCy pipeline does not support sentence splitting.
+        ValueError: When the iterable returned by the function is consumed, if
+            `spacy_pipeline` does not include a component that sets sentence
+            boundaries.
     """
     def _sentence_splitter(text: str) -> Iterable[tuple[str, tuple[int, int]]]:
         doc: Doc = spacy_pipeline(text)
@@ -93,12 +98,19 @@ def get_language_sentence_splitter(language: Languages) -> Callable[[str], Itera
     Returns a function that splits a given text into sentences using a
     language specific spaCy model.
 
+    The language specific spaCy model is loaded twice: once with its full pipeline
+    to determine which components are not needed for sentence boundary detection
+    (i.e. anything other than `transformer`, `tok2vec`, or `parser`), and once more
+    with those unneeded components excluded, so that the returned function only
+    runs the pipeline components required for sentence splitting.
+
     Args:
         language: The language of the text to split into sentences.
 
     Returns:
-        A function that takes a string and returns an iterable of strings and their character offsets,
-        where each string is a sentence in the input text.
+        A function that takes a string and returns an iterable of `(sentence_text,
+        (start_char, end_char))` tuples, one per sentence in the input text, in
+        order.
 
     Raises:
         ValueError: If the given language is not supported.

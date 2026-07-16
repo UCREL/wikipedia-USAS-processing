@@ -9,6 +9,13 @@ from rich import print as rprint
 
 
 class Languages(str, Enum):
+    """Wikipedia languages supported by this pipeline's model installation.
+
+    Each member's value is the human-readable language name used as a
+    ``--languages``/``-l`` choice on the :func:`install` CLI and as a key
+    into the language-to-model mapping dictionaries in this module.
+    """
+
     zh = "Chinese"
     da = "Danish"
     nl = "Dutch"
@@ -19,6 +26,12 @@ class Languages(str, Enum):
     es = "Spanish"
 
 class SpacyModel(str, Enum):
+    """spaCy model package names installable via :func:`pip_install_model`.
+
+    Each member's value is the spaCy model's package/model name, used as a
+    key into :data:`SPACY_MODEL_2_URL` and :data:`SPACY_DESCRIPTIONS`.
+    """
+
     zh_sm = "zh_core_web_sm"
     zh_md = "zh_core_web_md"
     zh_trf = "zh_core_web_trf"
@@ -110,7 +123,7 @@ PYMUSAS_SPACY_MODELS_DESCRIPTIONS: dict[Languages, str] = {
     Languages.es: "PyMUSAS Spanish Rule Based Model - (0.26MB)",
 }
 
-SPACY_MODEL_2_URL = {
+SPACY_MODEL_2_URL: dict[SpacyModel, str] = {
     SpacyModel.zh_sm: 'https://github.com/explosion/spacy-models/releases/download/zh_core_web_sm-3.8.0/zh_core_web_sm-3.8.0-py3-none-any.whl',
     SpacyModel.zh_md: 'https://github.com/explosion/spacy-models/releases/download/zh_core_web_md-3.8.0/zh_core_web_md-3.8.0-py3-none-any.whl',
     SpacyModel.zh_trf: 'https://github.com/explosion/spacy-models/releases/download/zh_core_web_trf-3.8.0/zh_core_web_trf-3.8.0-py3-none-any.whl',
@@ -168,24 +181,39 @@ def install(
     all_languages: Annotated[bool, typer.Option("--all", "-a", help="Install all language specific models.")] = False,
     describe: Annotated[bool, typer.Option("--describe", "-d", help="Describe the models that will be installed and exit.")] = False
     ):
-    """
-    Install the language specific models. You can either select the languages you want to install or use the --all flag to install all language specific models.
+    """Typer CLI entry point to install spaCy and PyMUSAS models per language.
 
-    If you want to describe the models that will be installed use the --describe flag.
+    You can either select the languages you want to install with
+    ``--languages``/``-l`` (repeatable) or use the ``--all`` flag to install
+    every supported language's models. Pass ``--describe`` to list the
+    models that would be installed instead of installing them.
 
-    Example:
+    Args:
+        languages: Languages to install models for. May be passed multiple
+            times (e.g. ``-l English -l Dutch``). Ignored if all_languages
+            is True.
+        all_languages: If True, install models for every supported
+            language, overriding languages.
+        describe: If True, print the models that would be installed for
+            the selected languages and exit without installing anything.
 
-    To install all language specific models run:
-    python models_install.py --all
+    Raises:
+        typer.Exit: With code 1 if neither languages nor all_languages
+            selects any language. With code 0 after printing the
+            description, if describe is True.
 
-    To install only the English and Dutch language specific models run:
-    python models_install.py -l English -l Dutch
+    Examples:
+        To install all language specific models::
 
-    To describe the models that will be installed run:
-    python models_install.py --describe
+            $ python models_install.py --all
 
-    To describe English specific models:
-    python models_install.py -l English --describe
+        To install only the English and Dutch language specific models::
+
+            $ python models_install.py -l English -l Dutch
+
+        To describe the models that will be installed for English::
+
+            $ python models_install.py -l English --describe
     """
     selected = languages
     if all_languages:
