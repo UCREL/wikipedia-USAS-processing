@@ -42,7 +42,17 @@ class FineWikiPlainTextRenderer(MarkdownRenderer):
         return self.render_children(token, state)
 
     def list_item(self, token, state):
-        return self.render_children(token, state)
+        content_parts = []
+        nested_parts = []
+        for child in token["children"]:
+            rendered = self.render_token(child, state)
+            if child["type"] == "list":
+                nested_parts.append(rendered)
+            else:
+                content_parts.append(rendered)
+        content = "".join(content_parts).rstrip("\n")
+        nested = "".join(nested_parts)
+        return content + "\n " + nested
 
     def block_html(self, token, state):
         return ""  # drop raw HTML blocks
@@ -125,16 +135,30 @@ class FineWikiPlainTextRenderer(MarkdownRenderer):
         return self.render_children(token, state)
 
     def task_list_item(self, token, state):
-        return "\n" + self.render_children(token, state)
+        return "\n " + self.render_children(token, state)
 
     def def_list_item(self, token, state):
-        return "\n" + self.render_children(token, state)
-    
+        return self.render_children(token, state)
+
     def def_list_head(self, token, state):
         return self.render_children(token, state)
 
     def def_list(self, token, state):
-        return self.render_children(token, state)
+        children = token["children"]
+        parts = []
+        for i, child in enumerate(children):
+            rendered = self.render_token(child, state)
+            match child["type"]:
+                case "def_list_head":
+                    if i > 0:
+                        parts.append("\n ")
+                    parts.append(rendered)
+                    parts.append(": ")
+                case _:  # def_list_item
+                    if i > 0 and children[i - 1]["type"] == "def_list_item":
+                        parts.append("\n ")
+                    parts.append(rendered)
+        return "".join(parts) + "\n"
 
     def mark(self, token, state):
         return self.render_children(token, state)

@@ -44,12 +44,13 @@ def render() -> Markdown:
         ("    print(1)", "\n"),
         # Block quotes keep their inner text, drop the `>` marker.
         ("> quoted text", "quoted text\n"),
-        # Unordered lists keep item text with no separators between items.
-        ("- item1\n- item2", "item1item2\n"),
+        # Unordered lists keep item text with a line break between items.
+        ("- item1\n- item2", "item1\n item2\n"),
         # Ordered lists behave the same way, numbering is dropped.
-        ("1. item1\n2. item2", "item1item2\n"),
-        # Nested list items are flattened into the parent's text.
-        ("- item1\n  - nested1\n- item2", "item1nested1item2\n"),
+        ("1. item1\n2. item2", "item1\n item2\n"),
+        # Nested list items are flattened into the parent's text, each on its
+        # own line.
+        ("- item1\n  - nested1\n- item2", "item1\n nested1\n item2\n"),
         # Raw HTML blocks are dropped.
         ("<div>html block</div>", "\n"),
         # Tables are dropped entirely.
@@ -86,9 +87,13 @@ def render() -> Markdown:
         # inline where the footnotes block appears.
         ("Text[^1]\n\n[^1]: Footnote text", "Text\nFootnote text\n"),
         # Task list items keep their text, the `[ ]`/`[x]` markers are dropped.
-        ("- [ ] task1\n- [x] task2", "\ntask1\ntask2\n"),
+        ("- [ ] task1\n- [x] task2", "\n task1\n task2\n"),
         # Definition list terms and definitions are kept, markers dropped.
-        ("Term\n: Definition", "Term\nDefinition\n"),
+        # Term and definition share a line; a new term/definition starts a
+        # new line.
+        ("Term\n: Definition", "Term: Definition\n"),
+        # Multiple terms each get their own line.
+        ("Term1\n: Definition1\n\nTerm2\n: Definition2", "Term1: Definition1\n Term2: Definition2\n"),
         # Inline spoilers keep their text, the `>!`/`!<` markers are dropped.
         ("before >! hidden text !< after", "before hidden text after\n"),
         # Block spoilers keep their text, the `>!` marker is dropped.
@@ -125,7 +130,8 @@ def render() -> Markdown:
         "insert",
         "footnote",
         "task-list",
-        "def-list",
+        "def-list-single-term",
+        "def-list-multiple-terms",
         "inline-spoiler",
         "block-spoiler",
     ],
