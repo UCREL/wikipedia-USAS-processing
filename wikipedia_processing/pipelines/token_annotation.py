@@ -17,7 +17,7 @@ class TokenPyMUSASAnnotator(PipelineStep):
     name = "🏷 Token + PyMUSAS Tag/MWE"
     type = "🏷 - ANNOTATE"
 
-    def __init__(self, wikipedia_language_code: str):
+    def __init__(self, wikipedia_language_code: str, tag_mapper: dict[str, str] | None = None):
         super().__init__()
         _language = getattr(ModelInstallLanguages, wikipedia_language_code, None)
         supported_languages = list(ModelInstallLanguages)
@@ -28,6 +28,10 @@ class TokenPyMUSASAnnotator(PipelineStep):
 
         usas_tags_to_filter_out = set({"Z99"})
         self.valid_usas_tags = set(load_usas_mapper(None, usas_tags_to_filter_out).keys())
+
+        self.tag_mapper: dict[str, str] = {}
+        if tag_mapper is not None:
+            self.tag_mapper = tag_mapper
 
     def _load_model(self) -> spacy.Language:
         if self._nlp is None:
@@ -45,11 +49,12 @@ class TokenPyMUSASAnnotator(PipelineStep):
         for start_index, end_index in sentence_start_end_indexes:
             yield doc.text[start_index: end_index]
 
-    def run(self, data: DocumentsPipeline, rank: int = 0, world_size: int = 1) -> DocumentsPipeline:
+    # ty infers generator functions as `types.GeneratorType`, which it won't match against
+    # `DocumentsPipeline`'s `NewType(Generator[Document, None, None] | None)` alias.
+    def run(self, data: DocumentsPipeline, rank: int = 0, world_size: int = 1) -> DocumentsPipeline:  # ty: ignore[invalid-return-type]
         nlp = self._load_model()
 
-        for doc in data:
-            doc = cast(Document, doc)
+        for doc in cast(Iterable[Document], data):
             sentence_tokens = []
             sentence_tags = []
             sentence_mwe_labels = []
@@ -72,6 +77,10 @@ class TokenPyMUSASAnnotator(PipelineStep):
                     if sentence:
                         all_pymusas_mwe_indexes: list[list[tuple[int, int]]] = []
                         for token in nlp(sentence):
+                            # Skip tokens that are whitespace
+                            if token.is_space:
+                                continue
+
                             tokens.append(token.text)
                             pymusas_tags = token._.pymusas_tags
                             all_pymusas_mwe_indexes.append(token._.pymusas_mwe_indexes)
@@ -88,6 +97,9 @@ class TokenPyMUSASAnnotator(PipelineStep):
                             if valid_pymusas_tags and len(valid_pymusas_tags) > 0:
                                 valid_most_likely_pymusas_tags = valid_pymusas_tags[0].tag_strings
                                 number_tagged_tokens += 1
+                            
+                            if self.tag_mapper:
+                                valid_most_likely_pymusas_tags = [self.tag_mapper.get(tag, tag) for tag in valid_most_likely_pymusas_tags]
                             
                             number_pymusas_tags += len(valid_most_likely_pymusas_tags)
                             tags.append(valid_most_likely_pymusas_tags)
