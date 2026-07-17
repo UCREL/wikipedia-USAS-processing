@@ -104,7 +104,8 @@ Each Wikipedia articles goes through the following pipeline;
 * Remove articles that contain less than 50 tokens based off a language specific tokenizer.
 * Apply exact and then MinHash de-duplication.
 * Sentence split using language specific sentence splitters
-* USAS semantic and when the tagger supports it MWE identification using [PyMUSAS Rule Based languages specific taggers](https://ucrel.github.io/pymusas/#rule-based). 
+* USAS semantic and when the tagger supports it MWE identification using [PyMUSAS Rule Based languages specific taggers](https://ucrel.github.io/pymusas/#rule-based) per sentence.
+  * Each sentence has all leading and starting whitespace removed, any tokens identified as whitespace are removed as tokens, and all `PUNCT` tags are mapped onto `Z9` tags.
 
 The processed data will contain the following fields:
 * `text` - the processed article text.
@@ -115,7 +116,8 @@ The processed data will contain the following fields:
 * `start_end_sentence_character_indexes` - list of start and end character offsets for each sentence, e.g. `[[0, 10], [11, 15]]` the first sentence is between `text[0:10]`.
 * `tokens` - list of a list of tokens whereby the inner list represents the tokens for a given sentence, e.g. `tokens[0]` would contain all of the tokens in the first sentence.
 * `tags` - list of a list of a list of USAS tags that were predicted by the PyMUSAS Rule Based languages specific tagger. The inner list represents the most likely USAS tags for the given token, e.g. `tags[0][0]` will contain a list of most likely USAS tags for the first token in the first sentence, in most cases it will only contain one USAS tag. When it contains more than one USAS tag this represents a token in which the meaning is a combination of the given predicted USAS tags. Some tokens will contain no USAS tags as the Rule Based tagger cannot make prediction for all tokens.
-* `mwes` - list of a list of MWE labels that were predicted by the PyMUSAS Rule Based languages specific tagger. The MWE labels denote at the sentence level which tokens are MWEs, e.g. `mwes[0][0]` represent all of the MWE labels for the first token in the first sentence, if it contains `1` and `mwes[0][1]` also contains `1` then the first token and second token in the first sentence are a MWE. If more than one label occurs then MWEs are overlapping which should not be the case with PyMUSAS taggers. MWEs can be dis-continuous. The index of MWE labels always start at 1 and reset per sentence, e.g. the first sentence can contain a MWE label of `1` and so can the second sentence, but they will be different MWEs as MWEs are constrained to occur within a single sentence; they cannot span sentence boundaries.
+* `other_tags` - list of a list of a list of USAS tags with the same shape as `tags`, but containing every valid USAS tag for a token that was **not** its most likely tag(s), e.g. `other_tags[0][0]` will contain any other valid USAS tags for the first token in the first sentence. Most tokens will contain no other USAS tags, in which case the inner list is empty.
+* `mwes` - list of a list of MWE labels that were predicted by the PyMUSAS Rule Based languages specific tagger, these always relate to the most likely USAS tags. The MWE labels denote at the sentence level which tokens are MWEs, e.g. `mwes[0][0]` represent all of the MWE labels for the first token in the first sentence, if it contains `1` and `mwes[0][1]` also contains `1` then the first token and second token in the first sentence are a MWE. If more than one label occurs then MWEs are overlapping which should not be the case with PyMUSAS taggers. MWEs can be dis-continuous. The index of MWE labels always start at 1 and reset per sentence, e.g. the first sentence can contain a MWE label of `1` and so can the second sentence, but they will be different MWEs as MWEs are constrained to occur within a single sentence; they cannot span sentence boundaries.
 
 ## Example script
 
