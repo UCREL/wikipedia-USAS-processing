@@ -7,6 +7,6 @@ __pycache__
 .coverage
 .env
 log_data
-data
+data/*
 ! data/languages.yaml
 local_*
