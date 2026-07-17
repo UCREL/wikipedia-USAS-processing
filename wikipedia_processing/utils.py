@@ -50,7 +50,7 @@ def convert_dataset_to_lookup(dataset: datasets.IterableDataset) -> dict[int, st
     return page_id_to_title
 
 
-def number_of_shards(dataset: datasets.IterableDataset) -> int:
+def get_number_of_shards(dataset: datasets.IterableDataset) -> int:
     """Get the number of shards backing an iterable dataset.
 
     Args:
