@@ -1,5 +1,6 @@
 from importlib.resources import files
 from pathlib import Path
+from typing import TypedDict
 
 import datasets
 from yaml import Loader
@@ -70,7 +71,28 @@ def create_sub_directory(parent_directory: Path, sub_directory_name: str) -> str
     return str(sub_directory.resolve())
 
 
-def get_usas_language_processing_information(wikipedia_language_code: str, language_data_file: Path | None = None) -> dict[str, str]:
+class UsasLanguageProcessingInformation(TypedDict):
+    """Wikipedia and USAS processing metadata for a single language.
+
+    Attributes:
+        language: The English name of the language, e.g. "English".
+        iso_639_3: The ISO 639-3 code for the language, e.g. "eng".
+        wikipedia_code: The Wikipedia language code, e.g. "en".
+        training: Whether this language is included in the training data.
+        data_trove_language: The DataTrove language identifier used for
+            tokenization, e.g. "english".
+    """
+
+    language: str
+    iso_639_3: str
+    wikipedia_code: str
+    training: bool
+    data_trove_language: str
+
+
+def get_usas_language_processing_information(
+    wikipedia_language_code: str, language_data_file: Path | None = None
+) -> UsasLanguageProcessingInformation:
     """
     Look up USAS processing metadata for a given Wikipedia language code.
 
@@ -87,9 +109,8 @@ def get_usas_language_processing_information(wikipedia_language_code: str, langu
             is used instead.
 
     Returns:
-        The dictionary of metadata for the matching language, as found in the
-        "languages" list of the YAML file (e.g. "language", "iso_639_3",
-        "wikipedia_code", "training", "data_trove_language").
+        The UsasLanguageProcessingInformation for the matching language, as
+        found in the "languages" list of the YAML file.
 
     Raises:
         ValueError: If no entry in the "languages" list has a "wikipedia_code"
