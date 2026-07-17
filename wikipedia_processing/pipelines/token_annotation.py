@@ -20,11 +20,12 @@ class TokenPyMUSASAnnotator(PipelineStep):
     "start_end_sentence_character_indexes" metadata produced by
     :class:`~wikipedia_processing.pipelines.sentence_splitting.SentenceSplitterAnnotator`)
     this step tokenizes the sentence with a language-specific spaCy + PyMUSAS
-    pipeline, keeps each token's most likely tag if it is a valid USAS tag, and
-    derives Multi-Word Expression (MWE) labels. Each document's metadata is
-    updated in place with "tokens", "tags" and "mwes" lists (one entry per
+    pipeline, keeps each token's most likely tag if it is a valid USAS tag
+    (any other valid tags are kept separately), and derives Multi-Word
+    Expression (MWE) labels. Each document's metadata is updated in place
+    with "tokens", "tags", "other_tags" and "mwes" lists (one entry per
     sentence), and step statistics are recorded for tokens, tagged tokens,
-    PyMUSAS tags and MWEs.
+    PyMUSAS tags, other PyMUSAS tags and MWEs.
 
     Attributes:
         name: Human-readable step name shown in DataTrove pipeline stats.
@@ -120,14 +121,17 @@ class TokenPyMUSASAnnotator(PipelineStep):
         Lazily loads the language-specific spaCy + PyMUSAS pipeline on first
         use, then for every document tokenizes each of its sentences (from
         :meth:`get_sentences`), keeps each token's most likely tag if it is a
-        valid USAS tag (optionally renamed via `tag_mapper`), and derives MWE
-        labels from the tagger's MWE index output. Sets
-        doc.metadata["tokens"], doc.metadata["tags"] and
+        valid USAS tag (optionally renamed via `tag_mapper`), keeps any other
+        valid USAS tags (these are tags that are not the token's most likely but could be valid)
+        for that token separately, and derives MWE labels
+        from the tagger's MWE index output. Sets doc.metadata["tokens"],
+        doc.metadata["tags"], doc.metadata["other_tags"] and
         doc.metadata["mwes"] to lists with one entry per sentence, and
-        records "tokens", "tagged tokens", "PyMUSAS tags" and "MWEs" step
-        statistics.
+        records "tokens", "tagged tokens", "PyMUSAS tags",
+        "other PyMUSAS tags" and "MWEs" step statistics.
 
         NOTE: tokens identified as whitespace are dropped/removed.
+        NOTE: MWE indexes are always related to the most likely PyMUSAS tag.
 
         Args:
             data: An iterable of documents to annotate.
@@ -138,17 +142,22 @@ class TokenPyMUSASAnnotator(PipelineStep):
 
         Yields:
             Each input document, with its metadata updated in place to
-            include "tokens", "tags" and "mwes".
+            include "tokens", "tags", "other_tags" and "mwes". "other_tags"
+            has the same shape as "tags" (a list per token, empty if there
+            are no other valid tags for that token) but holds every valid
+            USAS tag for the token beyond its most likely one.
         """
         nlp = self._load_model()
 
         for doc in cast(Iterable[Document], data):
             sentence_tokens = []
             sentence_tags = []
+            sentence_other_tags = []
             sentence_mwe_labels = []
             number_tokens = 0
             number_tagged_tokens = 0
             number_pymusas_tags = 0
+            number_other_pymusas_tags = 0
             number_mwes = 0
 
             with self.track_time():
@@ -156,11 +165,12 @@ class TokenPyMUSASAnnotator(PipelineStep):
                     sentence = sentence.strip()
                     tokens = []
                     tags = []
+                    other_tags = []
                     mwe_labels = []
-                    
+
                     # Some sentences do not contain any text content, in these
                     # cases some of the spaCy pipelines will fail, but to keep
-                    # number of values in the tokens etc lists and sentence indexes 
+                    # number of values in the tokens etc lists and sentence indexes
                     # list the same we append an empty token list for empty sentences
                     if sentence:
                         all_pymusas_mwe_indexes: list[list[tuple[int, int]]] = []
@@ -178,23 +188,30 @@ class TokenPyMUSASAnnotator(PipelineStep):
                                 most_likely_pymusas_tag = pymusas_tags[0]
                             else:
                                 tags.append([])
+                                other_tags.append([])
                                 continue
 
                             valid_pymusas_tags = keep_valid_usas_tags(most_likely_pymusas_tag, self.valid_usas_tags)
                             valid_most_likely_pymusas_tags: list[str] = []
+                            other_valid_pymusas_tags: list[str] = []
                             if valid_pymusas_tags and len(valid_pymusas_tags) > 0:
                                 valid_most_likely_pymusas_tags = valid_pymusas_tags[0].tag_strings
                                 number_tagged_tokens += 1
-                            
+                                for other_pymusas_tag_group in valid_pymusas_tags[1:]:
+                                    other_valid_pymusas_tags.extend(other_pymusas_tag_group.tag_strings)
+
                             if self.tag_mapper:
                                 valid_most_likely_pymusas_tags = [self.tag_mapper.get(tag, tag) for tag in valid_most_likely_pymusas_tags]
-                            
+                                other_valid_pymusas_tags = [self.tag_mapper.get(tag, tag) for tag in other_valid_pymusas_tags]
+
                             number_pymusas_tags += len(valid_most_likely_pymusas_tags)
+                            number_other_pymusas_tags += len(other_valid_pymusas_tags)
                             tags.append(valid_most_likely_pymusas_tags)
-                    
+                            other_tags.append(other_valid_pymusas_tags)
+
                         number_sentence_tokens = len(tokens)
                         tmp_mwe_labels = mwe_labels_from_pymusas_indexes(all_pymusas_mwe_indexes)
-                        
+
                         mwe_labels_json_serializable = []
                         number_mwes_in_sentence = 0
                         for mwe_labels in tmp_mwe_labels:
@@ -207,16 +224,19 @@ class TokenPyMUSASAnnotator(PipelineStep):
                         number_mwes += number_mwes_in_sentence
 
                         number_tokens += number_sentence_tokens
-                    
+
                     sentence_tokens.append(tokens)
                     sentence_tags.append(tags)
+                    sentence_other_tags.append(other_tags)
                     sentence_mwe_labels.append(mwe_labels)
             doc.metadata["tokens"] = sentence_tokens
             doc.metadata["tags"] = sentence_tags
+            doc.metadata["other_tags"] = sentence_other_tags
             doc.metadata["mwes"] = sentence_mwe_labels
 
             self.stat_update("tokens", value=number_tokens)
             self.stat_update("tagged tokens", value=number_tagged_tokens)
             self.stat_update("PyMUSAS tags", value=number_pymusas_tags)
+            self.stat_update("other PyMUSAS tags", value=number_other_pymusas_tags)
             self.stat_update("MWEs", value=number_mwes)
             yield doc

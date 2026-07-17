@@ -102,26 +102,51 @@ def test_run_tags_tokens_skips_whitespace_and_handles_empty_sentences(
     assert result is doc
     assert result.metadata["tokens"] == [["Cats", "sit", "."], []]
     assert result.metadata["tags"] == [[["Z2"], [], []], []]
+    # None of these tokens have more than one valid tag group, so "other_tags"
+    # is empty for every token.
+    assert result.metadata["other_tags"] == [[[], [], []], []]
     # None of the tokens share an MWE index slice, so no MWEs are found.
     assert result.metadata["mwes"] == [[[], [], []], []]
 
     assert annotator.stats["tokens"].total == 3
     assert annotator.stats["tagged tokens"].total == 1
     assert annotator.stats["PyMUSAS tags"].total == 1
+    assert annotator.stats["other PyMUSAS tags"].total == 0
     assert annotator.stats["MWEs"].total == 0
 
 
-def test_run_applies_tag_mapper() -> None:
-    annotator = TokenPyMUSASAnnotator("en", tag_mapper={"Z2": "Z2_MAPPED"})
-    annotator.valid_usas_tags = {"Z2"}
+def test_run_captures_other_valid_tags_beyond_the_most_likely_one() -> None:
+    # A single PyMUSAS tag string can contain more than one space-separated
+    # tag group; only the first is "most likely", the rest are captured
+    # separately in "other_tags" rather than being dropped.
+    annotator = TokenPyMUSASAnnotator("en")
+    annotator.valid_usas_tags = {"Z2", "E3"}
     sentence_tokens = {
-        "Cats": [_make_token("Cats", pymusas_tags=["Z2"], pymusas_mwe_indexes=[(0, 1)])],
+        "Cats": [_make_token("Cats", pymusas_tags=["Z2 E3"], pymusas_mwe_indexes=[(0, 1)])],
+    }
+
+    doc = Document(text="Cats", id="1", metadata={"start_end_sentence_character_indexes": [(0, 4)]})
+    (result,) = _run_with_fake_tagger(annotator, [doc], sentence_tokens)
+
+    assert result.metadata["tags"] == [[["Z2"]]]
+    assert result.metadata["other_tags"] == [[["E3"]]]
+    assert annotator.stats["PyMUSAS tags"].total == 1
+    assert annotator.stats["other PyMUSAS tags"].total == 1
+
+
+def test_run_applies_tag_mapper() -> None:
+    annotator = TokenPyMUSASAnnotator("en", tag_mapper={"Z2": "Z2_MAPPED", "E3": "E3_MAPPED"})
+    annotator.valid_usas_tags = {"Z2", "E3"}
+    sentence_tokens = {
+        "Cats": [_make_token("Cats", pymusas_tags=["Z2 E3"], pymusas_mwe_indexes=[(0, 1)])],
     }
 
     doc = Document(text="Cats", id="1", metadata={"start_end_sentence_character_indexes": [(0, 4)]})
     (result,) = _run_with_fake_tagger(annotator, [doc], sentence_tokens)
 
     assert result.metadata["tags"] == [[["Z2_MAPPED"]]]
+    assert result.metadata["other_tags"] == [[["E3_MAPPED"]]]
+
 
 
 def test_run_labels_multi_word_expressions(annotator: TokenPyMUSASAnnotator) -> None:
