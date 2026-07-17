@@ -90,6 +90,54 @@ class UsasLanguageProcessingInformation(TypedDict):
     data_trove_language: str
 
 
+def _load_usas_language_processing_entries(
+    language_data_file: Path | None,
+) -> list[UsasLanguageProcessingInformation]:
+    """Load the "languages" list from a USAS processing YAML file.
+
+    Args:
+        language_data_file: Path to a YAML file containing a "languages" list.
+            If None, the packaged
+            ``wikipedia_processing/data/usas_wikipedia_processing.yaml`` file
+            is used instead.
+
+    Returns:
+        The "languages" list, as parsed from the YAML file.
+    """
+    if language_data_file is None:
+        usas_wikipedia_processing_file_str = str(files("wikipedia_processing").joinpath("data/usas_wikipedia_processing.yaml"))
+        language_data_file_path = Path(usas_wikipedia_processing_file_str)
+    else:
+        language_data_file_path = language_data_file
+
+    with language_data_file_path.open("r", encoding="utf-8") as fp:
+        yaml_data = yaml_load(fp, Loader=Loader)
+    return yaml_data["languages"]
+
+
+def get_valid_usas_language_processing_wikipedia_codes(
+    language_data_file: Path | None = None,
+) -> list[str]:
+    """Get all Wikipedia language codes with USAS processing information.
+
+    Args:
+        language_data_file: Path to a YAML file containing a "languages" list.
+            If None, the packaged
+            ``wikipedia_processing/data/usas_wikipedia_processing.yaml`` file
+            is used instead.
+
+    Returns:
+        The "wikipedia_code" of every entry in the "languages" list of the
+        YAML file.
+
+    Examples:
+        >>> "en" in get_valid_usas_language_processing_wikipedia_codes()
+        True
+    """
+    entries = _load_usas_language_processing_entries(language_data_file)
+    return [language["wikipedia_code"] for language in entries]
+
+
 def get_usas_language_processing_information(
     wikipedia_language_code: str, language_data_file: Path | None = None
 ) -> UsasLanguageProcessingInformation:
@@ -116,15 +164,12 @@ def get_usas_language_processing_information(
         ValueError: If no entry in the "languages" list has a "wikipedia_code"
             matching wikipedia_language_code.
     """
-    if language_data_file is None:
-        usas_wikipedia_processing_file_str = str(files("wikipedia_processing").joinpath("data/usas_wikipedia_processing.yaml"))
-        language_data_file_path = Path(usas_wikipedia_processing_file_str)
-    else:
-        language_data_file_path = language_data_file
-
-    with language_data_file_path.open("r", encoding="utf-8") as fp:
-        yaml_data = yaml_load(fp, Loader=Loader)
-    for language in yaml_data["languages"]:
+    entries = _load_usas_language_processing_entries(language_data_file)
+    for language in entries:
         if language["wikipedia_code"] == wikipedia_language_code:
             return language
-    raise ValueError(f"Language {wikipedia_language_code} not found in {language_data_file}")
+    valid_codes = [language["wikipedia_code"] for language in entries]
+    raise ValueError(
+        f"Language {wikipedia_language_code!r} not found in {language_data_file}. "
+        f"Valid Wikipedia language codes are: {valid_codes}"
+    )

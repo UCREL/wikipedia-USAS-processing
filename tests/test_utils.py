@@ -4,6 +4,7 @@ import pytest
 
 from wikipedia_processing.utils import (
     get_usas_language_processing_information,
+    get_valid_usas_language_processing_wikipedia_codes,
     truncate_to_255_bytes,
 )
 
@@ -93,3 +94,15 @@ def test_get_usas_language_processing_information_default_file_loads_packaged_da
         "training": True,
         "data_trove_language": "spanish",
     }
+
+
+def test_get_valid_usas_language_processing_wikipedia_codes_returns_all_codes(tmp_path: Path) -> None:
+    language_data_file = _write_language_data_file(tmp_path)
+    assert get_valid_usas_language_processing_wikipedia_codes(language_data_file) == ["en", "nl"]
+
+
+def test_get_valid_usas_language_processing_wikipedia_codes_default_file_loads_packaged_data() -> None:
+    # No language_data_file given -> falls back to the packaged
+    # wikipedia_processing/data/usas_wikipedia_processing.yaml, which is
+    # expected to include Spanish's "es" code among others.
+    assert "es" in get_valid_usas_language_processing_wikipedia_codes()
