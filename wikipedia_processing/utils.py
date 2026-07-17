@@ -51,6 +51,14 @@ def convert_dataset_to_lookup(dataset: datasets.IterableDataset) -> dict[int, st
 
 
 def number_of_shards(dataset: datasets.IterableDataset) -> int:
+    """Get the number of shards backing an iterable dataset.
+
+    Args:
+        dataset: An iterable dataset to inspect.
+
+    Returns:
+        The number of shards in the dataset.
+    """
     return dataset.n_shards
 
 
