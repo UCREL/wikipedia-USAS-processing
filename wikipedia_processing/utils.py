@@ -73,6 +73,13 @@ def create_sub_directory(parent_directory: Path, sub_directory_name: str) -> str
 
     Returns:
         The resolved, absolute path to the sub-directory, as a string.
+
+    Examples:
+        >>> import tempfile
+        >>> with tempfile.TemporaryDirectory() as tmp:
+        ...     sub_dir = create_sub_directory(Path(tmp), "sub")
+        ...     Path(sub_dir).is_dir()
+        True
     """
     sub_directory = parent_directory /sub_directory_name
     sub_directory.mkdir(parents=True, exist_ok=True)

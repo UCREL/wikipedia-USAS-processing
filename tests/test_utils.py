@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from wikipedia_processing.utils import (
+    create_sub_directory,
     get_usas_language_processing_information,
     get_valid_usas_language_processing_wikipedia_codes,
     truncate_to_255_bytes,
@@ -106,3 +107,33 @@ def test_get_valid_usas_language_processing_wikipedia_codes_default_file_loads_p
     # wikipedia_processing/data/usas_wikipedia_processing.yaml, which is
     # expected to include Spanish's "es" code among others.
     assert "es" in get_valid_usas_language_processing_wikipedia_codes()
+
+
+def test_create_sub_directory_creates_new_directory(tmp_path: Path) -> None:
+    sub_directory = create_sub_directory(tmp_path, "sub")
+    assert Path(sub_directory) == (tmp_path / "sub").resolve()
+    assert Path(sub_directory).is_dir()
+
+
+def test_create_sub_directory_existing_directory_left_untouched(tmp_path: Path) -> None:
+    existing = tmp_path / "sub"
+    existing.mkdir()
+    marker = existing / "marker.txt"
+    marker.write_text("keep me", encoding="utf-8")
+
+    sub_directory = create_sub_directory(tmp_path, "sub")
+
+    assert Path(sub_directory) == existing.resolve()
+    assert marker.read_text(encoding="utf-8") == "keep me"
+
+
+def test_create_sub_directory_creates_missing_parents(tmp_path: Path) -> None:
+    # "a/b" has no existing intermediate directory "a" under tmp_path.
+    sub_directory = create_sub_directory(tmp_path, "a/b")
+    assert Path(sub_directory) == (tmp_path / "a" / "b").resolve()
+    assert Path(sub_directory).is_dir()
+
+
+def test_create_sub_directory_returns_resolved_absolute_path(tmp_path: Path) -> None:
+    sub_directory = create_sub_directory(tmp_path, "sub")
+    assert Path(sub_directory).is_absolute()
