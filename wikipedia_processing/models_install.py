@@ -218,7 +218,7 @@ def install(
     selected = languages
     if all_languages:
         selected = list(Languages)
-    if selected is None:
+    if selected is None or len(selected) == 0:
         rprint("No languages selected, either use --languages or --all")
         raise typer.Exit(1)
 
