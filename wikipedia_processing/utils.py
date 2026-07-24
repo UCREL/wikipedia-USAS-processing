@@ -1,6 +1,7 @@
 from importlib.resources import files
 from pathlib import Path
 from typing import TypedDict
+import math
 
 import datasets
 from yaml import Loader
@@ -188,3 +189,49 @@ def get_usas_language_processing_information(
         f"Language {wikipedia_language_code!r} not found in {language_data_file}. "
         f"Valid Wikipedia language codes are: {valid_codes}"
     )
+
+def get_hashes_per_bucket(num_buckets: int, threshold: float) -> int:
+    """Estimate the number of hashes per bucket (r) for MinHash LSH banding.
+
+    Given a fixed number of buckets (bands) and a target Jaccard similarity
+    threshold, solves for the number of hashes per bucket (rows per band)
+    that places the LSH S-curve's inflection point at that threshold, using
+    the closed-form relationship:
+
+        threshold ≈ (1 / num_buckets) ** (1 / r)
+
+    This anchors the approximate 50%-detection-probability point of the
+    S-curve to the given threshold. It does not account for the steepness
+    of the curve or optimize the false positive / false negative tradeoff --
+    for that, use a weighted search over false_positive_probability and
+    false_negative_probability instead.
+
+    Args:
+        num_buckets: Number of buckets (bands), i.e. the `b` parameter in
+            standard LSH banding notation. Must be a positive integer
+            greater than 1 (num_buckets == 1 makes threshold undefined,
+            since 1/num_buckets == 1).
+        threshold: Target Jaccard similarity threshold, in the open
+            interval (0, 1), at which candidate pairs should start being
+            flagged as duplicates.
+
+    Returns:
+        The estimated number of hashes per bucket (r), rounded to the
+        nearest integer. Note this can round to 0 for very loose thresholds
+        or large num_buckets -- callers should clamp to a minimum of 1.
+
+    Raises:
+        ValueError: If num_buckets < 2, or if threshold is not strictly
+            between 0 and 1.
+
+    Example:
+        >>> hashes_per_bucket(num_buckets=14, threshold=0.72)
+        8
+    """
+    if num_buckets < 2:
+        raise ValueError(f"num_buckets must be >= 2, got {num_buckets}")
+    if not 0 < threshold < 1:
+        raise ValueError(f"threshold must be in (0, 1), got {threshold}")
+
+    r = math.log(1 / num_buckets) / math.log(threshold)
+    return round(r)
