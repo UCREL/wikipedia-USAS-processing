@@ -1,7 +1,7 @@
+import math
 from importlib.resources import files
 from pathlib import Path
 from typing import TypedDict
-import math
 
 import datasets
 from yaml import Loader
@@ -224,8 +224,8 @@ def get_hashes_per_bucket(num_buckets: int, threshold: float) -> int:
         ValueError: If num_buckets < 2, or if threshold is not strictly
             between 0 and 1.
 
-    Example:
-        >>> hashes_per_bucket(num_buckets=14, threshold=0.72)
+    Examples:
+        >>> get_hashes_per_bucket(num_buckets=14, threshold=0.72)
         8
     """
     if num_buckets < 2:

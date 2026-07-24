@@ -4,6 +4,7 @@ import pytest
 
 from wikipedia_processing.utils import (
     create_sub_directory,
+    get_hashes_per_bucket,
     get_usas_language_processing_information,
     get_valid_usas_language_processing_wikipedia_codes,
     truncate_to_255_bytes,
@@ -137,3 +138,41 @@ def test_create_sub_directory_creates_missing_parents(tmp_path: Path) -> None:
 def test_create_sub_directory_returns_resolved_absolute_path(tmp_path: Path) -> None:
     sub_directory = create_sub_directory(tmp_path, "sub")
     assert Path(sub_directory).is_absolute()
+
+
+@pytest.mark.parametrize(
+    ("num_buckets", "threshold", "expected"),
+    [
+        # Docstring example.
+        (14, 0.72, 8),
+        # Smallest valid num_buckets, threshold at the midpoint.
+        (2, 0.5, 1),
+        # A threshold near 1 requires many hashes per bucket to distinguish sets.
+        (2, 0.99, 69),
+        # A very loose threshold can round down to 0, as noted in the docstring.
+        (2, 0.001, 0),
+    ],
+    ids=[
+        "docstring-example",
+        "minimal-num-buckets",
+        "threshold-near-one",
+        "loose-threshold-rounds-to-zero",
+    ],
+)
+def test_get_hashes_per_bucket(num_buckets: int, threshold: float, expected: int) -> None:
+    assert get_hashes_per_bucket(num_buckets, threshold) == expected
+
+
+def test_get_hashes_per_bucket_num_buckets_below_two_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="num_buckets must be >= 2"):
+        get_hashes_per_bucket(1, 0.5)
+
+
+@pytest.mark.parametrize(
+    "threshold",
+    [0.0, 1.0, -0.5, 1.5],
+    ids=["zero", "one", "negative", "greater-than-one"],
+)
+def test_get_hashes_per_bucket_threshold_outside_open_interval_raises_value_error(threshold: float) -> None:
+    with pytest.raises(ValueError, match="threshold must be in"):
+        get_hashes_per_bucket(num_buckets=14, threshold=threshold)
