@@ -3,17 +3,17 @@ languages:
     iso_639_3: eng
     wikipedia_code: en
     training: True
-    data_trove_language: english
+    data_trove_language: eng
   - language: Dutch
     iso_639_3: nld
     wikipedia_code: nl
     training: True
-    data_trove_language: dutch
+    data_trove_language: nld
   - language: Spanish
     iso_639_3: spa
     wikipedia_code: es
     training: True
-    data_trove_language: spanish
+    data_trove_language: spa
   - language: Hindi
     iso_639_3: hin
     wikipedia_code: hi
