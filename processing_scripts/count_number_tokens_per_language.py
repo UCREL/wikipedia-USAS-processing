@@ -4,6 +4,7 @@ import time
 from enum import Enum
 from pathlib import Path
 from typing import Annotated
+import shutil
 
 import datasets
 import typer
@@ -100,11 +101,11 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
          logging_dir: Annotated[Path, typer.Argument(help="Directory to save the language specific log too. Log folder will be `logging_dir/wikipedia_language_code`")],
          number_of_workers: Annotated[int, typer.Option("-w", "--number-of-workers", help="The number of workers, whereby one worker is one CPU core, this value is capped by the number of CPUs.")] = 1,
          tasks_multiplier: Annotated[int, typer.Option("-t", "--tasks-multiplier", help="Multiplier for the number of tasks to use for processing data based on the maximum number of workers.")] = 5,
-         overwrite: Annotated[bool, typer.Option("-o", "--overwrite", help="Whether to overwrite existing data.")] = False,
+         overwrite: Annotated[bool, typer.Option("-o", "--overwrite", help="Whether to overwrite existing data, this will also delete the existing log directory for the language if it exists.")] = False,
          min_hash_threshold: Annotated[float, typer.Option("-m", "--min-hash-threshold", help="Approximate Jaccard similarity threshold for minhash, to determine if a document is a duplicate, default value is what FineWeb choose.")] = 0.72,
          min_words_filter_threshold: Annotated[int, typer.Option("-f", "--min-words-filter-threshold", help="Minimum number of words in a document for it to be processed, anything less then the document is filtered out, default value is what Google Deepmind Gopher LLM (2022) choose.")] = 50,
          print_number_of_shards: Annotated[bool, typer.Option("-g", "--get-number-of-shards", help="Get the number of shards that the Wikipedia dataset is split into, this can be useful to determine the number of workers to assign when running the pipeline, this number is printed to stdout.")] = False,
-         max_output_file_size: Annotated[int, typer.Option("-s", "--max-output-file-size", help="Maximum output file size in MB, default value is 100MB, when the output is larger than this value it is split into multiple output files of up to this size.")] = 100,
+         max_output_file_size: Annotated[int, typer.Option("-s", "--max-output-file-size", help="Maximum output file size in MB, default value is 100MB, when the output is larger than this value it is split into multiple output files of up to this size.")] = 200,
          randomize_start_duration: Annotated[int, typer.Option("-r", "--randomize-start-duration", help="The maximum number of seconds to delay the start of each task to prevent all tasks from starting simultaneously and potentially overloading the system.")] = 5,):
     
     pipeline_start_time = time.perf_counter()
@@ -132,6 +133,10 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
     minhash_hashes_per_bucket = get_hashes_per_bucket(minhash_number_of_buckets, min_hash_threshold)
     
     main_logging_dir_str = create_sub_directory(logging_dir, wikipedia_language_code_str)
+    if overwrite and Path(main_logging_dir_str).exists():
+        data_trove_logger.info(f"Deleting existing log directory: {main_logging_dir_str!r}")
+        shutil.rmtree(main_logging_dir_str, ignore_errors=False)
+
     stats_logging_dir_str = create_sub_directory(Path(main_logging_dir_str), "stats")
     merged_stats_logging_dir_str = create_sub_directory(Path(main_logging_dir_str), "merged_stats")
 
@@ -143,6 +148,8 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
                            f"of tasks is set to the number of shards): {number_data_downloading_tasks!r}")
     data_trove_logger.info(f"Number of data processing tasks: {number_processing_tasks!r}")
     data_trove_logger.info(f"Number of buckets and hashes per bucket for MinHash: {minhash_number_of_buckets!r}, {minhash_hashes_per_bucket!r}")
+    data_trove_logger.info(f"MinHash threshold: {min_hash_threshold!r}")
+    data_trove_logger.info(f"Minimum number of words filter threshold: {min_words_filter_threshold!r}")
 
     language_meta_data = get_usas_language_processing_information(wikipedia_language_code)
     data_trove_language = language_meta_data["data_trove_language"]
