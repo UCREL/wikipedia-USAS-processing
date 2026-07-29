@@ -1,3 +1,4 @@
+import json
 import math
 import time
 from importlib.resources import files
@@ -5,6 +6,7 @@ from pathlib import Path
 from typing import Callable, Generator, TypedDict, cast
 
 import datasets
+import typer
 from datatrove.data import Document, DocumentsPipeline
 from datatrove.utils.logging import logger as data_trove_logger
 from yaml import Loader
@@ -279,3 +281,30 @@ def time_elapsed(start_time: float) -> float:
         The elapsed time in seconds since `start_time`.
     """
     return time.perf_counter() - start_time
+
+
+def parse_tag_mapper(value: str) -> dict[str, str]:
+    """Parse a JSON object string into a tag mapper dictionary.
+
+    Args:
+        value: A JSON-encoded object mapping USAS tag strings to their
+            replacement tag strings, e.g. `{"PUNCT": "Z9"}`.
+
+    Returns:
+        The decoded tag mapper dictionary.
+
+    Raises:
+        typer.BadParameter: If value is not valid JSON or does not decode to
+            a JSON object.
+
+    Examples:
+        >>> parse_tag_mapper('{"PUNCT": "Z9"}')
+        {'PUNCT': 'Z9'}
+    """
+    try:
+        tag_mapper = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise typer.BadParameter(f"Invalid JSON: {value!r}") from error
+    if not isinstance(tag_mapper, dict):
+        raise typer.BadParameter(f"Expected a JSON object mapping tag strings to tag strings, got: {value!r}")
+    return tag_mapper

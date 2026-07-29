@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import typer
 from datatrove.data import Document
 from datatrove.utils.logging import logger as data_trove_logger
 
@@ -12,6 +13,7 @@ from wikipedia_processing.utils import (
     get_progress_logger_function,
     get_usas_language_processing_information,
     get_valid_usas_language_processing_wikipedia_codes,
+    parse_tag_mapper,
     time_elapsed,
     truncate_to_255_bytes,
 )
@@ -255,3 +257,40 @@ def test_time_elapsed_zero_when_start_time_is_now(monkeypatch: pytest.MonkeyPatc
     # Boundary case: start_time equal to the current reading yields no elapsed time.
     monkeypatch.setattr(time, "perf_counter", lambda: 5.0)
     assert time_elapsed(5.0) == 0.0
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        # Docstring example.
+        ('{"PUNCT": "Z9"}', {"PUNCT": "Z9"}),
+        # Empty JSON object is a valid (no-op) tag mapper.
+        ("{}", {}),
+        # Multiple entries are all preserved.
+        ('{"PUNCT": "Z9", "NUM1": "N1"}', {"PUNCT": "Z9", "NUM1": "N1"}),
+    ],
+    ids=["docstring-example", "empty-object", "multiple-entries"],
+)
+def test_parse_tag_mapper_valid_json_object(value: str, expected: dict[str, str]) -> None:
+    assert parse_tag_mapper(value) == expected
+
+
+def test_parse_tag_mapper_invalid_json_raises_bad_parameter() -> None:
+    with pytest.raises(typer.BadParameter, match="Invalid JSON"):
+        parse_tag_mapper("{not valid json")
+
+
+def test_parse_tag_mapper_empty_string_raises_bad_parameter() -> None:
+    # Empty string is not valid JSON at all.
+    with pytest.raises(typer.BadParameter, match="Invalid JSON"):
+        parse_tag_mapper("")
+
+
+@pytest.mark.parametrize(
+    "value",
+    ['["PUNCT", "Z9"]', '"PUNCT"', "42", "true", "null"],
+    ids=["array", "string", "number", "boolean", "null"],
+)
+def test_parse_tag_mapper_non_object_json_raises_bad_parameter(value: str) -> None:
+    with pytest.raises(typer.BadParameter, match="Expected a JSON object"):
+        parse_tag_mapper(value)

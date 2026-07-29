@@ -73,7 +73,7 @@ def test_get_sentences_raises_without_sentence_indexes_metadata(annotator: Token
         list(annotator.get_sentences(doc))
 
 
-def test_run_tags_tokens_skips_whitespace_and_handles_empty_sentences(
+def test_run_tags_tokens_whitespace_edge_case(
     annotator: TokenPyMUSASAnnotator,
 ) -> None:
     # Deterministic tag validity independent of the real USAS mapper data.
@@ -83,12 +83,12 @@ def test_run_tags_tokens_skips_whitespace_and_handles_empty_sentences(
         "Cats sit.": [
             # Valid, most-likely tag -> kept and counted.
             _make_token("Cats", pymusas_tags=["Z2"], pymusas_mwe_indexes=[(0, 1)]),
-            # Whitespace tokens are dropped entirely, not even counted.
-            _make_token(" ", is_space=True),
+            # Whitespace tags are dropped entirely, not even counted. This should transform into Z99 tag and then dropped as it is not a valid USAS tag.
+            _make_token(" ", is_space=True, pymusas_tags=["Z1"], pymusas_mwe_indexes=[(1, 2)]),
             # Tag is present but not a valid USAS tag -> filtered to [].
-            _make_token("sit", pymusas_tags=["Q1"], pymusas_mwe_indexes=[(1, 2)]),
+            _make_token("sit", pymusas_tags=["Q1"], pymusas_mwe_indexes=[(2, 3)]),
             # No PyMUSAS tags at all -> [].
-            _make_token(".", pymusas_tags=[], pymusas_mwe_indexes=[(2, 3)]),
+            _make_token(".", pymusas_tags=[], pymusas_mwe_indexes=[(3, 4)]),
         ],
     }
 
@@ -100,15 +100,15 @@ def test_run_tags_tokens_skips_whitespace_and_handles_empty_sentences(
     (result,) = _run_with_fake_tagger(annotator, [doc], sentence_tokens)
 
     assert result is doc
-    assert result.metadata["tokens"] == [["Cats", "sit", "."], []]
-    assert result.metadata["tags"] == [[["Z2"], [], []], []]
+    assert result.metadata["tokens"] == [["Cats", " ", "sit", "."], []]
+    assert result.metadata["tags"] == [[["Z2"], [], [], []], []]
     # None of these tokens have more than one valid tag group, so "other_tags"
     # is empty for every token.
-    assert result.metadata["other_tags"] == [[[], [], []], []]
+    assert result.metadata["other_tags"] == [[[], [], [], []], []]
     # None of the tokens share an MWE index slice, so no MWEs are found.
-    assert result.metadata["mwes"] == [[[], [], []], []]
+    assert result.metadata["mwes"] == [[[], [], [], []], []]
 
-    assert annotator.stats["tokens"].total == 3
+    assert annotator.stats["tokens"].total == 4
     assert annotator.stats["tagged tokens"].total == 1
     assert annotator.stats["PyMUSAS tags"].total == 1
     assert annotator.stats["other PyMUSAS tags"].total == 0

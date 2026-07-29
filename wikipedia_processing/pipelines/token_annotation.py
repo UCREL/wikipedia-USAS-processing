@@ -130,7 +130,10 @@ class TokenPyMUSASAnnotator(PipelineStep):
         records "tokens", "tagged tokens", "PyMUSAS tags",
         "other PyMUSAS tags" and "MWEs" step statistics.
 
-        NOTE: tokens identified as whitespace are dropped/removed.
+        NOTE: tokens identified as whitespace are labelled as "Z99" and thus as
+        that is not a valid USAS tag label the token is kept but the tag is not,
+        thus whitespace is assigned no USAS tags.
+        
         NOTE: MWE indexes are always related to the most likely PyMUSAS tag.
 
         Args:
@@ -175,12 +178,11 @@ class TokenPyMUSASAnnotator(PipelineStep):
                     if sentence:
                         all_pymusas_mwe_indexes: list[list[tuple[int, int]]] = []
                         for token in nlp(sentence):
-                            # Skip tokens that are whitespace
-                            if token.is_space:
-                                continue
-
                             tokens.append(token.text)
                             pymusas_tags = token._.pymusas_tags
+                            # All whitespace is tagged as "Z99"
+                            if token.is_space:
+                                pymusas_tags = ["Z99"]
                             all_pymusas_mwe_indexes.append(token._.pymusas_mwe_indexes)
 
                             most_likely_pymusas_tag: str = ""
@@ -234,9 +236,9 @@ class TokenPyMUSASAnnotator(PipelineStep):
             doc.metadata["other_tags"] = sentence_other_tags
             doc.metadata["mwes"] = sentence_mwe_labels
 
-            self.stat_update("tokens", value=number_tokens)
-            self.stat_update("tagged tokens", value=number_tagged_tokens)
-            self.stat_update("PyMUSAS tags", value=number_pymusas_tags)
+            self.stat_update("tokens", value=(number_tokens))
+            self.stat_update("tagged tokens", value=(number_tagged_tokens))
+            self.stat_update("PyMUSAS tags", value=(number_pymusas_tags))
             self.stat_update("other PyMUSAS tags", value=number_other_pymusas_tags)
             self.stat_update("MWEs", value=number_mwes)
             yield doc
