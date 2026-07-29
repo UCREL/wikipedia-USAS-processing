@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ from wikipedia_processing.utils import (
     get_hashes_per_bucket,
     get_usas_language_processing_information,
     get_valid_usas_language_processing_wikipedia_codes,
+    time_elapsed,
     truncate_to_255_bytes,
 )
 
@@ -94,7 +96,7 @@ def test_get_usas_language_processing_information_default_file_loads_packaged_da
         "iso_639_3": "spa",
         "wikipedia_code": "es",
         "training": True,
-        "data_trove_language": "spanish",
+        "data_trove_language": "spa",
     }
 
 
@@ -176,3 +178,16 @@ def test_get_hashes_per_bucket_num_buckets_below_two_raises_value_error() -> Non
 def test_get_hashes_per_bucket_threshold_outside_open_interval_raises_value_error(threshold: float) -> None:
     with pytest.raises(ValueError, match="threshold must be in"):
         get_hashes_per_bucket(num_buckets=14, threshold=threshold)
+
+
+def test_time_elapsed_computes_difference_from_start_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Deterministic perf_counter reading so the elapsed time is exact, not
+    # just "close to" some wall-clock delta.
+    monkeypatch.setattr(time, "perf_counter", lambda: 10.0)
+    assert time_elapsed(4.0) == 6.0
+
+
+def test_time_elapsed_zero_when_start_time_is_now(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Boundary case: start_time equal to the current reading yields no elapsed time.
+    monkeypatch.setattr(time, "perf_counter", lambda: 5.0)
+    assert time_elapsed(5.0) == 0.0
