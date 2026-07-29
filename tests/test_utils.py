@@ -1,11 +1,15 @@
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from datatrove.data import Document
+from datatrove.utils.logging import logger as data_trove_logger
 
 from wikipedia_processing.utils import (
     create_sub_directory,
     get_hashes_per_bucket,
+    get_progress_logger_function,
     get_usas_language_processing_information,
     get_valid_usas_language_processing_wikipedia_codes,
     time_elapsed,
@@ -178,6 +182,66 @@ def test_get_hashes_per_bucket_num_buckets_below_two_raises_value_error() -> Non
 def test_get_hashes_per_bucket_threshold_outside_open_interval_raises_value_error(threshold: float) -> None:
     with pytest.raises(ValueError, match="threshold must be in"):
         get_hashes_per_bucket(num_buckets=14, threshold=threshold)
+
+
+def test_get_progress_logger_function_yields_documents_unchanged() -> None:
+    documents = [Document(text="a", id="1"), Document(text="b", id="2")]
+    log_progress = get_progress_logger_function("reading")
+
+    with patch.object(data_trove_logger, "info"):
+        result = list(log_progress(iter(documents), 0, 1))  # ty: ignore[invalid-argument-type]
+
+    assert result == documents
+
+
+def test_get_progress_logger_function_logs_progress_at_log_every_interval() -> None:
+    documents = [Document(text=str(i), id=str(i)) for i in range(5)]
+    log_progress = get_progress_logger_function("reading", log_every=2)
+
+    with patch.object(data_trove_logger, "info") as mock_info:
+        list(log_progress(iter(documents), 0, 1))  # ty: ignore[invalid-argument-type]
+
+    # Progress lines fire at counts 2 and 4, then a final "finished" line.
+    assert mock_info.call_count == 3
+    assert "processed 2 documents so far" in mock_info.call_args_list[0].args[0]
+    assert "processed 4 documents so far" in mock_info.call_args_list[1].args[0]
+    assert "finished, processed 5 documents total" in mock_info.call_args_list[2].args[0]
+
+
+def test_get_progress_logger_function_includes_step_name_and_rank_in_messages() -> None:
+    documents = [Document(text="a", id="1")]
+    log_progress = get_progress_logger_function("annotate")
+
+    with patch.object(data_trove_logger, "info") as mock_info:
+        list(log_progress(iter(documents), 3, 8))  # ty: ignore[invalid-argument-type]
+
+    mock_info.assert_called_once()
+    message = mock_info.call_args.args[0]
+    assert "[annotate]" in message
+    assert "rank=3" in message
+    assert "finished, processed 1 documents total" in message
+
+
+def test_get_progress_logger_function_data_none_processes_zero_documents() -> None:
+    log_progress = get_progress_logger_function("reading")
+
+    with patch.object(data_trove_logger, "info") as mock_info:
+        result = list(log_progress(None, 0, 1))  # ty: ignore[invalid-argument-type]
+
+    assert result == []
+    mock_info.assert_called_once()
+    assert "finished, processed 0 documents total" in mock_info.call_args.args[0]
+
+
+def test_get_progress_logger_function_empty_generator_processes_zero_documents() -> None:
+    log_progress = get_progress_logger_function("reading")
+
+    with patch.object(data_trove_logger, "info") as mock_info:
+        result = list(log_progress(iter([]), 0, 1))  # ty: ignore[invalid-argument-type]
+
+    assert result == []
+    mock_info.assert_called_once()
+    assert "finished, processed 0 documents total" in mock_info.call_args.args[0]
 
 
 def test_time_elapsed_computes_difference_from_start_time(monkeypatch: pytest.MonkeyPatch) -> None:
