@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import time
@@ -26,7 +27,7 @@ from datatrove.pipeline.filters import LambdaFilter
 from datatrove.pipeline.readers import HuggingFaceDatasetReader, JsonlReader
 from datatrove.pipeline.stats import WordStats
 from datatrove.pipeline.stats.merger import StatsMerger
-from datatrove.pipeline.writers import JsonlWriter
+from datatrove.pipeline.writers import HuggingFaceDatasetWriter, JsonlWriter, ParquetWriter
 from datatrove.utils.logging import logger as data_trove_logger
 from dotenv import load_dotenv
 
@@ -43,6 +44,10 @@ from wikipedia_processing.formatters import (
 )
 from wikipedia_processing.pipelines.sentence_splitting import SentenceSplitterAnnotator
 from wikipedia_processing.pipelines.token_annotation import TokenPyMUSASAnnotator
+from wikipedia_processing.pipelines.train_validation_split import (
+    TrainValidationSplitAnnotator,
+    drop_split_column_writer_adapter,
+)
 from wikipedia_processing.utils import (
     create_sub_directory,
     get_hashes_per_bucket,
@@ -51,6 +56,7 @@ from wikipedia_processing.utils import (
     get_usas_language_processing_information,
     get_valid_usas_language_processing_wikipedia_codes,
     time_elapsed,
+    parse_tag_mapper,
 )
 
 TEST_SET_WIKIPEDIA_URLS = set({
@@ -97,6 +103,7 @@ TEST_SET_WIKIPEDIA_URLS = set({
 load_dotenv()
 WikipediaLanguageCode = Enum("WikipediaLanguageCode", [(value, value) for value in get_valid_usas_language_processing_wikipedia_codes()], type=str)
 
+
 def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argument(help="Wikipedia language code for the language you want to download and process data for.")],
          logging_dir: Annotated[Path, typer.Argument(help="Directory to save the language specific log too. Log folder will be `logging_dir/wikipedia_language_code`")],
          number_of_workers: Annotated[int, typer.Option("-w", "--number-of-workers", help="The number of workers, whereby one worker is one CPU core, this value is capped by the number of CPUs.")] = 1,
@@ -105,10 +112,19 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
          min_hash_threshold: Annotated[float, typer.Option("-m", "--min-hash-threshold", help="Approximate Jaccard similarity threshold for minhash, to determine if a document is a duplicate, default value is what FineWeb choose.")] = 0.72,
          min_words_filter_threshold: Annotated[int, typer.Option("-f", "--min-words-filter-threshold", help="Minimum number of words in a document for it to be processed, anything less then the document is filtered out, default value is what Google Deepmind Gopher LLM (2022) choose.")] = 50,
          print_number_of_shards: Annotated[bool, typer.Option("-g", "--get-number-of-shards", help="Get the number of shards that the Wikipedia dataset is split into, this can be useful to determine the number of workers to assign when running the pipeline, this number is printed to stdout.")] = False,
-         max_output_file_size: Annotated[int, typer.Option("-s", "--max-output-file-size", help="Maximum output file size in MB, default value is 100MB, when the output is larger than this value it is split into multiple output files of up to this size.")] = 200,
-         randomize_start_duration: Annotated[int, typer.Option("-r", "--randomize-start-duration", help="The maximum number of seconds to delay the start of each task to prevent all tasks from starting simultaneously and potentially overloading the system.")] = 5,):
-    
+         max_output_file_size: Annotated[int, typer.Option("-s", "--max-output-file-size", help="Maximum output file size in MB for the intermediate temporary files, the smaller this is the more tasks and potential parallelism there will be, default value is 100MB, when the output is larger than this value it is split into multiple output files of up to this size.")] = 100,
+         output_dir: Annotated[Path | None, typer.Option("--output-dir", help="Local directory to write the final Parquet output data to, in `output_dir/data/<language>/{train,validation}/` subfolders. Mutually exclusive with --hf-dataset-repo-id; exactly one of the two must be given.")] = None,
+         hf_dataset_repo_id: Annotated[str | None, typer.Option("--hf-dataset-repo-id", help="HuggingFace Hub dataset repository (`namespace/name`) to upload the final Parquet output to directly, e.g. `ucrelnlp/wikipedia-usas-mwe`. Mutually exclusive with --output-dir; exactly one of the two must be given.")] = None,
+         hf_dataset_private: Annotated[bool, typer.Option("--private/--public", help="Whether to create the Hub dataset repo as private if it does not already exist. Only used with --hf-dataset-repo-id.")] = False,
+         hf_local_working_dir: Annotated[Path | None, typer.Option("--hf-local-working-dir", help="Local staging directory used before uploading to the Hub. Only used with --hf-dataset-repo-id; defaults to a temporary directory that is cleaned up after upload.")] = None,
+         max_final_output_file_size: Annotated[int, typer.Option("-e", "--max-final-output-file-size", help="Maximum size in MB of the final Parquet output shards, when the output is larger than this value it is split into multiple output files of up to this size. Distinct from --max-output-file-size, which only governs intermediate staging files.")] = 200,
+         validation_percentage: Annotated[float, typer.Option("-v", "--validation-percentage", help="Target percentage (0-100) of a language's documents assigned to the validation split; the rest go to train.")] = 10,
+         max_validation_documents: Annotated[int, typer.Option("-n", "--max-validation-documents", help="Absolute cap on the number of documents in the validation split, regardless of --validation-percentage. The smaller of the percentage-based and absolute-cap counts wins.")] = 20,
+         randomize_start_duration: Annotated[int, typer.Option("-r", "--randomize-start-duration", help="The maximum number of seconds to delay the start of each task to prevent all tasks from starting simultaneously and potentially overloading the system.")] = 5,
+         tag_mapper_json: Annotated[str, typer.Option("--tag-mapper", help="JSON object mapping USAS tag strings to replacement tag strings, applied to each token's tags during PyMUSAS annotation. Tags with no entry are kept unchanged.")] = '{"PUNCT": "Z9"}',):
+
     pipeline_start_time = time.perf_counter()
+    tag_mapper = parse_tag_mapper(tag_mapper_json)
     dataset_id = "HuggingFaceFW/finewiki"
     wikipedia_language_code_str: str = wikipedia_language_code.value
     dataset_load_kwargs = {
@@ -122,6 +138,11 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
     if print_number_of_shards:
         print(number_of_shards)
         typer.Exit(0)
+
+    if (output_dir is None) == (hf_dataset_repo_id is None):
+        raise typer.BadParameter("Exactly one of --output-dir or --hf-dataset-repo-id must be provided.")
+    if hf_dataset_repo_id is None and hf_dataset_private:
+        raise typer.BadParameter("--private can only be used with --hf-dataset-repo-id.")
 
     number_of_workers = min(number_of_workers, os.process_cpu_count())
 
@@ -168,6 +189,33 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
         generic_output_filename = f"{wikipedia_language_code_str}" + "${rank}.jsonl.gz"
         # Converting to MB
         max_file_size_in_bytes = int(max_output_file_size * 10e5)
+
+        final_output_filename = f"data/{wikipedia_language_code_str}" + "/${split}/${rank}.parquet"
+        max_final_output_file_size_in_bytes = max_final_output_file_size * 1024 * 1024
+        if output_dir is not None:
+            final_output_pipe = ParquetWriter(
+                output_folder=str(output_dir.resolve()),
+                output_filename=final_output_filename,
+                compression="zstd",
+                expand_metadata=True,
+                adapter=drop_split_column_writer_adapter,
+                max_file_size=max_final_output_file_size_in_bytes,
+            )
+        else:
+            assert hf_dataset_repo_id is not None
+            hf_writer_kwargs = {}
+            if hf_local_working_dir is not None:
+                hf_writer_kwargs["local_working_dir"] = str(hf_local_working_dir.resolve())
+            final_output_pipe = HuggingFaceDatasetWriter(
+                dataset=hf_dataset_repo_id,
+                private=hf_dataset_private,
+                output_filename=final_output_filename,
+                compression="zstd",
+                expand_metadata=True,
+                adapter=drop_split_column_writer_adapter,
+                max_file_size=max_final_output_file_size_in_bytes,
+                **hf_writer_kwargs,
+            )
 
         reading_intermediate_data_dir = create_sub_directory(tmp_dir_path, "reading_intermediate")
         reading_stage_output_pipe = JsonlWriter(reading_intermediate_data_dir, output_filename=generic_output_filename, compression="infer", expand_metadata=False, max_file_size=max_file_size_in_bytes)
@@ -289,8 +337,13 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
             skip_completed=overwrite,
             logging_dir=logging_dir_minhash_filter_str,
             depends=minhash_clusters_stage)
+        train_validation_split_annotator = TrainValidationSplitAnnotator(
+            validation_percentage=validation_percentage,
+            max_validation_documents=max_validation_documents,
+            split_hash_metadata_key="page_id",
+        )
         post_processing_stage = LocalPipelineExecutor(
-            pipeline=[minhash_filter_read_pipe, SentenceSplitterAnnotator(wikipedia_language_code_str), TokenPyMUSASAnnotator(wikipedia_language_code_str), word_statistics],
+            pipeline=[minhash_filter_read_pipe, SentenceSplitterAnnotator(wikipedia_language_code_str), TokenPyMUSASAnnotator(wikipedia_language_code_str, tag_mapper=tag_mapper), train_validation_split_annotator, final_output_pipe],
             tasks=number_processing_tasks, # This has to match minhash_sigs_stage
             workers=number_of_workers,
             randomize_start_duration=randomize_start_duration,
