@@ -1,9 +1,12 @@
 import math
+import time
 from importlib.resources import files
 from pathlib import Path
-from typing import TypedDict
+from typing import Callable, Generator, TypedDict, cast
 
 import datasets
+from datatrove.data import Document, DocumentsPipeline
+from datatrove.utils.logging import logger as data_trove_logger
 from yaml import Loader
 from yaml import load as yaml_load
 
@@ -235,3 +238,44 @@ def get_hashes_per_bucket(num_buckets: int, threshold: float) -> int:
 
     r = math.log(1 / num_buckets) / math.log(threshold)
     return round(r)
+
+
+def get_progress_logger_function(step_name: str, log_every: int = 1000) -> Callable[[DocumentsPipeline, int, int], Generator[Document, None, None]]:
+    """Build a DataTrove pipeline step that periodically logs document throughput.
+
+    Yields every document unchanged, logging a running count every `log_every`
+    documents so that long-running, otherwise-silent steps (e.g. streaming a
+    dataset from HuggingFace) show visible, per-task progress in the task log
+    files.
+
+    Args:
+        step_name: Label included in each log line, to identify which pipeline
+            step is reporting progress (e.g. "reading").
+        log_every: Number of documents between progress log lines.
+
+    Returns:
+        A callable with the DataTrove custom pipeline step signature
+        `(data, rank, world_size) -> DocumentsPipeline`.
+    """
+    def log_progress(data: DocumentsPipeline, rank: int = 0, world_size: int = 1) -> Generator[Document, None, None]:
+        count = 0
+        if data:
+            for document in cast(Generator[Document, None, None], data):
+                count += 1
+                if count % log_every == 0:
+                    data_trove_logger.info(f"[{step_name}] rank={rank} processed {count} documents so far")
+                yield document
+        data_trove_logger.info(f"[{step_name}] rank={rank} finished, processed {count} documents total")
+    return log_progress
+
+
+def time_elapsed(start_time: float) -> float:
+    """Compute the elapsed time since a starting `time.perf_counter()` reading.
+
+    Args:
+        start_time: A starting timestamp, as returned by `time.perf_counter()`.
+
+    Returns:
+        The elapsed time in seconds since `start_time`.
+    """
+    return time.perf_counter() - start_time
