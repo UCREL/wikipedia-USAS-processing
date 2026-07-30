@@ -23,8 +23,11 @@ from enum import Enum
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import spacy
 import typer
+from rich.console import Console
+from rich.table import Table
 
 from wikipedia_processing.models_install import pip_install_model
 
@@ -53,6 +56,13 @@ MODEL_COLORS: dict[ModelNames, str] = {
     ModelNames.da_core_news_lg: "#2a78d6",
     ModelNames.da_core_news_trf: "#eb6834",
 }
+
+
+class OutputFormat(str, Enum):
+    """How to present the benchmark results."""
+
+    plot = "plot"
+    table = "table"
 
 
 def generate_sentences(token_length: int, number_sentences: int) -> Iterable[str]:
@@ -185,6 +195,68 @@ def plot_results(
     plt.close(fig)
 
 
+def build_results_dataframe(
+    sentence_counts: list[int],
+    results: dict[ModelNames, list[float]],
+    token_length: int,
+) -> pd.DataFrame:
+    """Build a tidy results table with one row per benchmarked sentence count.
+
+    Args:
+        sentence_counts: The row values (number of sentences benchmarked).
+        results: Mapping of model to its per-`sentence_counts` elapsed times.
+        token_length: Fixed tokens-per-sentence used for the run.
+
+    Returns:
+        A DataFrame with "Sentences", "Tokens", and one "<model> (s)" column
+        per benchmarked model.
+
+    Examples:
+        >>> list(build_results_dataframe([1, 2], {ModelNames.da_core_news_lg: [0.1, 0.2]}, 21).columns)
+        ['Sentences', 'Tokens', 'da_core_news_lg (s)']
+    """
+    data: dict[str, list[int] | list[float]] = {
+        "Sentences": sentence_counts,
+        "Tokens": [count * token_length for count in sentence_counts],
+    }
+    for model_name, timings in results.items():
+        data[f"{model_name.value} (s)"] = timings
+    return pd.DataFrame(data)
+
+
+def print_results_table(results_df: pd.DataFrame, token_length: int) -> None:
+    """Print a results DataFrame as a Rich console table.
+
+    Args:
+        results_df: The results table, as returned by `build_results_dataframe`.
+        token_length: Fixed tokens-per-sentence used for the run, shown in the title.
+    """
+    table = Table(title=f"Danish spaCy model speed comparison ({token_length} tokens/sentence)")
+    for column in results_df.columns:
+        table.add_column(column, justify="right")
+
+    for row in results_df.to_dict(orient="records"):
+        sentences = row["Sentences"]
+        marker = " *" if sentences == AVERAGE_SENTENCES_PER_DOCUMENT else ""
+        formatted = [f"{sentences}{marker}", str(row["Tokens"])]
+        formatted.extend(f"{value:.3f}" for column, value in row.items() if column not in ("Sentences", "Tokens"))
+        table.add_row(*formatted)
+
+    console = Console()
+    console.print(table)
+    console.print(f"* {AVERAGE_SENTENCES_PER_DOCUMENT} sentences/doc is the corpus average")
+
+
+def export_latex_table(results_df: pd.DataFrame, output: Path) -> None:
+    """Write a results DataFrame to a file as a LaTeX tabular environment.
+
+    Args:
+        results_df: The results table, as returned by `build_results_dataframe`.
+        output: File path the LaTeX table is written to.
+    """
+    output.write_text(results_df.to_latex(index=False, float_format="%.3f"))
+
+
 def main(
     token_length: Annotated[
         int,
@@ -198,10 +270,18 @@ def main(
         int,
         typer.Option(help="Number of log-spaced sentence-count values to benchmark."),
     ] = 8,
+    output_format: Annotated[
+        OutputFormat,
+        typer.Option("--format", "-f", help="Present results as a plotted graph or a printed table."),
+    ] = OutputFormat.plot,
     output: Annotated[
         Path,
-        typer.Option(help="Path to write the comparison graph to."),
+        typer.Option(help="Path to write the comparison graph to (plot format only)."),
     ] = Path("speed_test_results.png"),
+    latex_output: Annotated[
+        Path | None,
+        typer.Option(help="If set, also write the results table to this path as a LaTeX tabular, independent of --format."),
+    ] = None,
     install_models: Annotated[
         bool,
         typer.Option(help="Pip install the two Danish spaCy models before benchmarking."),
@@ -232,8 +312,18 @@ def main(
             timings.append(elapsed)
         results[model_name] = timings
 
-    plot_results(sentence_counts, results, token_length, output)
-    typer.echo(f"Wrote graph to {output}")
+    results_df = build_results_dataframe(sentence_counts, results, token_length)
+
+    match output_format:
+        case OutputFormat.plot:
+            plot_results(sentence_counts, results, token_length, output)
+            typer.echo(f"Wrote graph to {output}")
+        case OutputFormat.table:
+            print_results_table(results_df, token_length)
+
+    if latex_output is not None:
+        export_latex_table(results_df, latex_output)
+        typer.echo(f"Wrote LaTeX table to {latex_output}")
 
 
 if __name__ == "__main__":
