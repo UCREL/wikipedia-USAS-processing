@@ -46,13 +46,13 @@ def get_language_tagger(language: Languages) -> spacy.Language:
 
     match language:
         case Languages.zh:
-            return get_tagger(language, SpacyModel.zh_trf, ['ner'])
+            return get_tagger(language, SpacyModel.zh_lg, ['ner'])
         case Languages.da:
-            return get_tagger(language, SpacyModel.da_trf, ['ner'])
+            return get_tagger(language, SpacyModel.da_lg, ['ner'])
         case Languages.nl:
             return get_tagger(language, SpacyModel.nl_lg, ['ner'])
         case Languages.en:
-            return get_tagger(language, SpacyModel.en_trf, ['ner'])
+            return get_tagger(language, SpacyModel.en_lg, ['ner'])
         case Languages.fi:
             return get_tagger(language, SpacyModel.fi_lg, ['ner'])
         case Languages.it:
@@ -60,7 +60,7 @@ def get_language_tagger(language: Languages) -> spacy.Language:
         case Languages.pt:
             return get_tagger(language, SpacyModel.pt_lg, ['ner'])
         case Languages.es:
-            return get_tagger(language, SpacyModel.es_trf, ['ner'])    
+            return get_tagger(language, SpacyModel.es_lg, ['ner'])    
         case _:
             raise ValueError(f"Language {language} not supported")
 
@@ -130,11 +130,11 @@ def get_language_sentence_splitter(language: Languages) -> Callable[[str], Itera
         case Languages.zh:
             return get_spacy_sentence_splitter(SpacyModel.zh_md)
         case Languages.da:
-            return get_spacy_sentence_splitter(SpacyModel.da_trf)
+            return get_spacy_sentence_splitter(SpacyModel.da_lg)
         case Languages.nl:
             return get_spacy_sentence_splitter(SpacyModel.nl_lg)
         case Languages.en:
-            return get_spacy_sentence_splitter(SpacyModel.en_trf)
+            return get_spacy_sentence_splitter(SpacyModel.en_lg)
         case Languages.fi:
             return get_spacy_sentence_splitter(SpacyModel.fi_sm)
         case Languages.it:
@@ -142,7 +142,7 @@ def get_language_sentence_splitter(language: Languages) -> Callable[[str], Itera
         case Languages.pt:
             return get_spacy_sentence_splitter(SpacyModel.pt_lg)
         case Languages.es:
-            return get_spacy_sentence_splitter(SpacyModel.es_trf)
+            return get_spacy_sentence_splitter(SpacyModel.es_lg)
         case _:
             raise ValueError(f"Language {language} not supported")
 

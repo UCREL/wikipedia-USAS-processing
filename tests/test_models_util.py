@@ -20,14 +20,14 @@ from wikipedia_processing.models_util import (
 @pytest.mark.parametrize(
     ("language", "expected_spacy_model"),
     [
-        (Languages.zh, SpacyModel.zh_trf),
-        (Languages.da, SpacyModel.da_trf),
+        (Languages.zh, SpacyModel.zh_lg),
+        (Languages.da, SpacyModel.da_lg),
         (Languages.nl, SpacyModel.nl_lg),
-        (Languages.en, SpacyModel.en_trf),
+        (Languages.en, SpacyModel.en_lg),
         (Languages.fi, SpacyModel.fi_lg),
         (Languages.it, SpacyModel.it_lg),
         (Languages.pt, SpacyModel.pt_lg),
-        (Languages.es, SpacyModel.es_trf),
+        (Languages.es, SpacyModel.es_lg),
     ],
     ids=["zh", "da", "nl", "en", "fi", "it", "pt", "es"],
 )
@@ -65,13 +65,13 @@ def test_get_language_tagger_raises_for_unsupported_language() -> None:
     ("language", "expected_spacy_model"),
     [
         (Languages.zh, SpacyModel.zh_md),
-        (Languages.da, SpacyModel.da_trf),
+        (Languages.da, SpacyModel.da_lg),
         (Languages.nl, SpacyModel.nl_lg),
-        (Languages.en, SpacyModel.en_trf),
+        (Languages.en, SpacyModel.en_lg),
         (Languages.fi, SpacyModel.fi_sm),
         (Languages.it, SpacyModel.it_sm),
         (Languages.pt, SpacyModel.pt_lg),
-        (Languages.es, SpacyModel.es_trf),
+        (Languages.es, SpacyModel.es_lg),
     ],
     ids=["zh", "da", "nl", "en", "fi", "it", "pt", "es"],
 )

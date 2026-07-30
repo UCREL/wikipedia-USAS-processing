@@ -181,7 +181,7 @@ def plot_results(
         )
 
     ax.set_xscale("log")
-    ax.set_xlabel("Number of sentences processed")
+    ax.set_xlabel("Number of sentences processed (log scale)")
     ax.set_ylabel("Time taken (seconds)")
     ax.set_title(f"Danish spaCy model speed comparison ({token_length} tokens/sentence)")
     ax.grid(True, which="both", color="#e1e0d9", linewidth=0.8)
@@ -277,7 +277,7 @@ def main(
     output: Annotated[
         Path,
         typer.Option(help="Path to write the comparison graph to (plot format only)."),
-    ] = Path("speed_test_results.png"),
+    ] = Path("da_spacy_model_speed.png"),
     latex_output: Annotated[
         Path | None,
         typer.Option(help="If set, also write the results table to this path as a LaTeX tabular, independent of --format."),

@@ -34,16 +34,16 @@ class SpacyModel(str, Enum):
 
     zh_sm = "zh_core_web_sm"
     zh_md = "zh_core_web_md"
-    zh_trf = "zh_core_web_trf"
+    zh_lg = "zh_core_web_lg"
 
     da_sm = "da_core_news_sm"
-    da_trf = "da_core_news_trf"
+    da_lg = "da_core_news_lg"
 
     nl_md = "nl_core_news_md"
     nl_lg = "nl_core_news_lg"
 
     en_sm  = "en_core_web_sm"
-    en_trf = "en_core_web_trf"
+    en_lg = "en_core_web_lg"
 
     fi_sm = "fi_core_news_sm"
     fi_lg = "fi_core_news_lg"
@@ -55,18 +55,18 @@ class SpacyModel(str, Enum):
     pt_lg = "pt_core_news_lg"
     
     es_sm = "es_core_news_sm"
-    es_trf = "es_dep_news_trf"
+    es_lg = "es_core_news_lg"
 
 
 LANGUAGE_2_SPACY_MODEL: dict[Languages, List[SpacyModel]] = {
-    Languages.zh: [SpacyModel.zh_sm, SpacyModel.zh_md, SpacyModel.zh_trf],
-    Languages.da: [SpacyModel.da_sm, SpacyModel.da_trf],
+    Languages.zh: [SpacyModel.zh_sm, SpacyModel.zh_md, SpacyModel.zh_lg],
+    Languages.da: [SpacyModel.da_sm, SpacyModel.da_lg],
     Languages.nl: [SpacyModel.nl_md, SpacyModel.nl_lg],
-    Languages.en: [SpacyModel.en_sm, SpacyModel.en_trf],
+    Languages.en: [SpacyModel.en_sm, SpacyModel.en_lg],
     Languages.fi: [SpacyModel.fi_sm, SpacyModel.fi_lg],
     Languages.it: [SpacyModel.it_sm, SpacyModel.it_lg],
     Languages.pt: [SpacyModel.pt_sm, SpacyModel.pt_lg],
-    Languages.es: [SpacyModel.es_sm, SpacyModel.es_trf]
+    Languages.es: [SpacyModel.es_sm, SpacyModel.es_lg]
 }
 
 LANGUAGE_2_PYMUSAS_SPACY_MODEL: dict[Languages, str] = {
@@ -95,13 +95,13 @@ PYMUSAS_SPACY_MODEL_2_URL: dict[str, str] = {
 SPACY_DESCRIPTIONS: dict[SpacyModel, str] = {
     SpacyModel.zh_sm:  "Chinese - Small (46MB)",
     SpacyModel.zh_md:  "Chinese - Medium (74MB)",
-    SpacyModel.zh_trf: "Chinese - Transformer-based (396MB)",
+    SpacyModel.zh_lg: "Chinese - Large (575MB)",
     SpacyModel.da_sm:  "Danish - Small (11MB)",
-    SpacyModel.da_trf: "Danish - Transformer-based (420MB)",
+    SpacyModel.da_lg:  "Danish - Large (540MB)",
     SpacyModel.nl_md:  "Dutch - Medium (40MB)",
     SpacyModel.nl_lg:  "Dutch - Large (541MB)",
     SpacyModel.en_sm:  "English - Small (12MB)",
-    SpacyModel.en_trf: "English - Transformer-based (438MB)",
+    SpacyModel.en_lg: "English - Large (382MB)",
     SpacyModel.fi_sm:  "Finnish - Small (13MB)",
     SpacyModel.fi_lg:  "Finnish - Large (220MB)",
     SpacyModel.it_sm:  "Italian - Small (12MB)",
@@ -109,7 +109,7 @@ SPACY_DESCRIPTIONS: dict[SpacyModel, str] = {
     SpacyModel.pt_sm:  "Portuguese - Small (12MB)",
     SpacyModel.pt_lg:  "Portuguese - Large (541MB)",
     SpacyModel.es_sm:  "Spanish - Small (12MB)",
-    SpacyModel.es_trf:  "Spanish - Transformer-based (388MB)",
+    SpacyModel.es_lg:  "Spanish - Large (541MB)",
 }
 
 PYMUSAS_SPACY_MODELS_DESCRIPTIONS: dict[Languages, str] = {
@@ -126,13 +126,13 @@ PYMUSAS_SPACY_MODELS_DESCRIPTIONS: dict[Languages, str] = {
 SPACY_MODEL_2_URL: dict[SpacyModel, str] = {
     SpacyModel.zh_sm: 'https://github.com/explosion/spacy-models/releases/download/zh_core_web_sm-3.8.0/zh_core_web_sm-3.8.0-py3-none-any.whl',
     SpacyModel.zh_md: 'https://github.com/explosion/spacy-models/releases/download/zh_core_web_md-3.8.0/zh_core_web_md-3.8.0-py3-none-any.whl',
-    SpacyModel.zh_trf: 'https://github.com/explosion/spacy-models/releases/download/zh_core_web_trf-3.8.0/zh_core_web_trf-3.8.0-py3-none-any.whl',
+    SpacyModel.zh_lg: 'https://github.com/explosion/spacy-models/releases/download/zh_core_web_lg-3.8.0/zh_core_web_lg-3.8.0-py3-none-any.whl',
     SpacyModel.da_sm: 'https://github.com/explosion/spacy-models/releases/download/da_core_news_sm-3.8.0/da_core_news_sm-3.8.0-py3-none-any.whl',
-    SpacyModel.da_trf: 'https://github.com/explosion/spacy-models/releases/download/da_core_news_trf-3.8.0/da_core_news_trf-3.8.0-py3-none-any.whl',
+    SpacyModel.da_lg: 'https://github.com/explosion/spacy-models/releases/download/da_core_news_lg-3.8.0/da_core_news_lg-3.8.0-py3-none-any.whl',
     SpacyModel.nl_md: 'https://github.com/explosion/spacy-models/releases/download/nl_core_news_md-3.8.0/nl_core_news_md-3.8.0-py3-none-any.whl',
     SpacyModel.nl_lg: 'https://github.com/explosion/spacy-models/releases/download/nl_core_news_lg-3.8.0/nl_core_news_lg-3.8.0-py3-none-any.whl',
     SpacyModel.en_sm: 'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl',
-    SpacyModel.en_trf: 'https://github.com/explosion/spacy-models/releases/download/en_core_web_trf-3.8.0/en_core_web_trf-3.8.0-py3-none-any.whl',
+    SpacyModel.en_lg: 'https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl',
     SpacyModel.fi_sm: 'https://github.com/explosion/spacy-models/releases/download/fi_core_news_sm-3.8.0/fi_core_news_sm-3.8.0-py3-none-any.whl',
     SpacyModel.fi_lg: 'https://github.com/explosion/spacy-models/releases/download/fi_core_news_lg-3.8.0/fi_core_news_lg-3.8.0-py3-none-any.whl',
     SpacyModel.it_sm: 'https://github.com/explosion/spacy-models/releases/download/it_core_news_sm-3.8.0/it_core_news_sm-3.8.0-py3-none-any.whl',
@@ -140,7 +140,7 @@ SPACY_MODEL_2_URL: dict[SpacyModel, str] = {
     SpacyModel.pt_sm: 'https://github.com/explosion/spacy-models/releases/download/pt_core_news_sm-3.8.0/pt_core_news_sm-3.8.0-py3-none-any.whl',
     SpacyModel.pt_lg: 'https://github.com/explosion/spacy-models/releases/download/pt_core_news_lg-3.8.0/pt_core_news_lg-3.8.0-py3-none-any.whl',
     SpacyModel.es_sm: 'https://github.com/explosion/spacy-models/releases/download/es_core_news_sm-3.8.0/es_core_news_sm-3.8.0-py3-none-any.whl',
-    SpacyModel.es_trf: 'https://github.com/explosion/spacy-models/releases/download/es_dep_news_trf-3.8.0/es_dep_news_trf-3.8.0-py3-none-any.whl',
+    SpacyModel.es_lg: 'https://github.com/explosion/spacy-models/releases/download/es_core_news_lg-3.8.0/es_core_news_lg-3.8.0-py3-none-any.whl',
 }
 
 def pip_install_model(wheel_url: str, spacy_model_name: str | None = None) -> None:
