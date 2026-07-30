@@ -46,12 +46,11 @@ from wikipedia_processing.formatters import (
     RemoveLinesWithGivenLatexCommandsFormatter,
     WikipediaMarkdownFormatter,
 )
+from wikipedia_processing.pipelines.metadata_whitelist import MetadataWhitelistAnnotator
 from wikipedia_processing.pipelines.sentence_splitting import SentenceSplitterAnnotator
 from wikipedia_processing.pipelines.token_annotation import TokenPyMUSASAnnotator
-from wikipedia_processing.pipelines.train_validation_split import (
-    TrainValidationSplitAnnotator,
-    drop_split_column_writer_adapter,
-)
+from wikipedia_processing.pipelines.train_validation_split import TrainValidationSplitAnnotator
+from wikipedia_processing.pipelines.writer_adapter import get_metadata_whitelist_writer_adapter
 from wikipedia_processing.utils import (
     create_sub_directory,
     get_hashes_per_bucket,
@@ -279,6 +278,17 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
     url_filter = SimpleURLFilter(urls_to_filter=TEST_SET_WIKIPEDIA_URLS)
     wikipedia_markdown_formatter = WikipediaMarkdownFormatter()
     word_statistics = WordStats(stats_logging_dir_str, language=data_trove_language)
+    reader_metadata_whitelist = MetadataWhitelistAnnotator(keys_to_keep=frozenset({"page_id", "title", "url"}))
+    output_writer_adapter = get_metadata_whitelist_writer_adapter(keys_to_keep=frozenset({
+        "page_id",
+        "title",
+        "url",
+        "start_end_sentence_character_indexes",
+        "tokens",
+        "tags",
+        "other_tags",
+        "mwes",
+    }))
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_dir_path = Path(tmp_dir)
@@ -294,7 +304,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
                 output_filename=final_output_filename,
                 compression="zstd",
                 expand_metadata=True,
-                adapter=drop_split_column_writer_adapter,
+                adapter=output_writer_adapter,
                 max_file_size=max_final_output_file_size_in_bytes,
             )
         else:
@@ -313,7 +323,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
                 output_filename=final_output_filename,
                 compression="zstd",
                 expand_metadata=True,
-                adapter=drop_split_column_writer_adapter,
+                adapter=output_writer_adapter,
                 max_file_size=max_final_output_file_size_in_bytes,
                 **hf_writer_kwargs,
             )
@@ -372,7 +382,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
         logging_dir_merged_stats_processing_str = create_sub_directory(Path(main_logging_dir_str), "merged_stats_processing")
 
         reading_stage = executor_factory.create(
-            pipeline=[reader_pipe, get_progress_logger_function("reading"), page_id_title_filter, url_filter, reading_stage_output_pipe],
+            pipeline=[reader_pipe, get_progress_logger_function("reading"), page_id_title_filter, url_filter, reader_metadata_whitelist, reading_stage_output_pipe],
             tasks=number_data_downloading_tasks,
             workers=number_downloading_workers,
             logging_dir=logging_reading_dir,

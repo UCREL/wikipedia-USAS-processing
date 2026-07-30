@@ -1,11 +1,8 @@
-from types import SimpleNamespace
-
 import pytest
 from datatrove.data import Document
 
 from wikipedia_processing.pipelines.train_validation_split import (
     TrainValidationSplitAnnotator,
-    drop_split_column_writer_adapter,
 )
 
 
@@ -90,19 +87,3 @@ def test_split_assignment_is_deterministic_for_the_same_metadata_value() -> None
     assert [doc.metadata["split"] for doc in first_results] == [
         doc.metadata["split"] for doc in second_results
     ]
-
-
-@pytest.mark.parametrize("expand_metadata", [True, False], ids=["expand-metadata", "no-expand-metadata"])
-def test_drop_split_column_writer_adapter_omits_split(expand_metadata: bool) -> None:
-    writer = SimpleNamespace(expand_metadata=expand_metadata, save_media_bytes=True)
-    doc = Document(text="x", id="1", metadata={"page_id": 1, "split": "validation"})
-
-    data = drop_split_column_writer_adapter(writer, doc)  # ty: ignore[invalid-argument-type]
-
-    if expand_metadata:
-        assert "split" not in data
-        assert data["page_id"] == 1
-    else:
-        # split is only stripped when metadata is expanded into top-level
-        # columns; otherwise it stays untouched inside the metadata dict.
-        assert data["metadata"] == {"page_id": 1, "split": "validation"}

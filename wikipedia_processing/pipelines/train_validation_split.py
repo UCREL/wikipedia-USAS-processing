@@ -1,48 +1,8 @@
-import dataclasses
 import hashlib
 from typing import cast
 
 from datatrove.data import Document, DocumentsPipeline
 from datatrove.pipeline.base import PipelineStep
-from datatrove.pipeline.writers.disk_base import DiskWriter
-
-
-def drop_split_column_writer_adapter(writer: DiskWriter, document: Document) -> dict:
-    """DataTrove writer adapter that omits the "split" metadata field from written rows.
-
-    Behaves like `DiskWriter`'s own default adapter (flattening metadata into
-    top-level fields when `writer.expand_metadata` is True), except it drops
-    "split" from the output. This is meant to be paired with
-    :class:`TrainValidationSplitAnnotator` and a writer whose
-    `output_filename` already routes documents into `train`/`validation`
-    subfolders via a "${split}" placeholder: that routing reads
-    `document.metadata` directly before this adapter runs, so dropping
-    "split" here only removes the redundant column from the written data --
-    the split is still recoverable from which subfolder a row is written to.
-
-    NOTE: "split" is only dropped when `writer.expand_metadata` is True (i.e.
-    metadata is flattened into top-level columns). When `writer.expand_metadata`
-    is False, "split" is left untouched inside the nested "metadata" dict,
-    matching how `DiskWriter`'s own default adapter otherwise leaves metadata
-    alone in that mode.
-
-    Args:
-        writer: The `DiskWriter` instance this adapter is bound to (passed
-            automatically by DataTrove).
-        document: The document being written.
-
-    Returns:
-        A dictionary of the document's fields to write, with "split" omitted
-        from the (optionally expanded) metadata.
-    """
-    data = {key: val for key, val in dataclasses.asdict(document).items() if val}
-    if writer.expand_metadata and "metadata" in data:
-        metadata = data.pop("metadata")
-        metadata.pop("split", None)
-        data |= metadata
-    if not writer.save_media_bytes and "media" in data:
-        data["media"] = [{**media, "media_bytes": None} for media in data["media"]]
-    return data
 
 
 class TrainValidationSplitAnnotator(PipelineStep):
