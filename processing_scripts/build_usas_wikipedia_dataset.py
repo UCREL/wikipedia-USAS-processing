@@ -209,6 +209,9 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
             hf_writer_kwargs = {}
             if hf_local_working_dir is not None:
                 hf_writer_kwargs["local_working_dir"] = str(hf_local_working_dir.resolve())
+            else:
+                hf_local_working_dir_str = create_sub_directory(tmp_dir_path, "hf_local_working_dir")
+                hf_writer_kwargs["local_working_dir"] = hf_local_working_dir_str
             if hf_dataset_revision is not None:
                 hf_writer_kwargs["revision"] = hf_dataset_revision
             final_output_pipe = HuggingFaceDatasetWriter(

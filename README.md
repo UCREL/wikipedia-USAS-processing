@@ -73,6 +73,8 @@ or by using a token that is set within [./.env](./.env), read using [dotenv](htt
 HF_TOKEN="HUGGINGFACE_TOKEN_KEY_VALUE"
 ```
 
+Set the relevant permissions, the minimum for this is repository is "read" only permission, if you want to upload the created synthetic silver labelled dataset to HuggingFace please ensure that you have allowed write permission to the namespace/repository you are going to upload too on HuggingFace.
+
 
 ## Data
 
@@ -103,9 +105,9 @@ Each Wikipedia articles goes through the following pipeline;
 * Remove any Markdown formatting like headers using [mistune Python package](https://github.com/lepture/mistune) from the article text.
 * Remove articles that contain less than 50 tokens based off a language specific tokenizer.
 * Apply exact and then MinHash de-duplication.
-* Sentence split using language specific sentence splitters
-* USAS semantic and when the tagger supports it MWE identification using [PyMUSAS Rule Based languages specific taggers](https://ucrel.github.io/pymusas/#rule-based) per sentence.
-  * Each sentence has all leading and starting whitespace removed, any tokens identified as whitespace are removed as tokens, and all `PUNCT` tags are mapped onto `Z9` tags.
+* Sentence split using language specific sentence splitters (spaCy sentence splitters are installed when the processing script is running).
+* USAS semantic and when the tagger supports it MWE identification using [PyMUSAS Rule Based languages specific taggers](https://ucrel.github.io/pymusas/#rule-based) per sentence (The spaCy tokenizers, lemmatizers, and POS taggers as well as the PyMUSAS tagger are installed when the processing script is running).
+  * Each sentence has all leading and starting whitespace removed, any tokens identified as whitespace are kept as tokens but with no USAS tags, and all `PUNCT` tags are mapped onto `Z9` tags. If a `Z99` USAS tag (the unmatched tag) is produced by any of the rule based taggers this USAS tag is not kept, it is removed.
 
 The processed data will contain the following fields:
 * `text` - the processed article text.
@@ -119,58 +121,84 @@ The processed data will contain the following fields:
 * `other_tags` - list of a list of a list of USAS tags with the same shape as `tags`, but containing every valid USAS tag for a token that was **not** its most likely tag(s), e.g. `other_tags[0][0]` will contain any other valid USAS tags for the first token in the first sentence. Most tokens will contain no other USAS tags, in which case the inner list is empty.
 * `mwes` - list of a list of MWE labels that were predicted by the PyMUSAS Rule Based languages specific tagger, these always relate to the most likely USAS tags. The MWE labels denote at the sentence level which tokens are MWEs, e.g. `mwes[0][0]` represent all of the MWE labels for the first token in the first sentence, if it contains `1` and `mwes[0][1]` also contains `1` then the first token and second token in the first sentence are a MWE. If more than one label occurs then MWEs are overlapping which should not be the case with PyMUSAS taggers. MWEs can be dis-continuous. The index of MWE labels always start at 1 and reset per sentence, e.g. the first sentence can contain a MWE label of `1` and so can the second sentence, but they will be different MWEs as MWEs are constrained to occur within a single sentence; they cannot span sentence boundaries.
 
-## Example script
+The final data is written as [zstd](https://github.com/facebook/zstd)-compressed [Parquet](https://parquet.apache.org/) files rather than JSONL, as Parquet gives better compression on the repetitive, deeply nested `tokens`/`tags`/`other_tags`/`mwes` fields and native [HuggingFace Hub Dataset Viewer](https://huggingface.co/docs/hub/en/datasets-viewer) support.
+
+### Train/validation split
+
+Each language's documents are split into `train` and `validation` subsets, written to separate `train`/`validation` subfolders (there is no `split` field/column in the data itself, the split is entirely determined by which subfolder a file is in). The validation split is **X% of the language's documents, or N documents, whichever is reached first** (controlled by the `--validation-percentage`/`-v` and `--max-validation-documents`/`-n` options of [build_usas_wikipedia_dataset.py](processing_scripts/build_usas_wikipedia_dataset.py) below) rather than a flat percentage. A flat percentage would give under-resourced languages (some have as few as ~200 articles) a tiny handful of validation documents while giving well-resourced languages like English potentially thousands, which is more than needed for a useful validation set and just eats into training data. Capping at `min(X% of total, N)` keeps small languages at their natural percentage-based split (they will never reach the `N` cap) while bounding well-resourced languages' validation set to a sane absolute size. The split assignment is deterministic (hashed from each document's page ID), so re-running the pipeline reproduces the same split.
+
+### Filtering and Processing script
+
+[processing_scripts/build_usas_wikipedia_dataset.py](processing_scripts/build_usas_wikipedia_dataset.py) is the pipeline entry point. It writes the final output either to a local directory or directly to a HuggingFace Hub dataset repository — pass exactly one of `--output-dir` or `--hf-dataset-repo-id`.
+
+Writing locally, as Parquet files under `./local_da/data/da/{train,validation}/`:
 
 ``` bash
-uv run test_local.py da ./data/wikipedia_pages ./local_da/ ./log_data/
+uv run processing_scripts/build_usas_wikipedia_dataset.py da ./log_data/ --output-dir ./local_da/
 ```
 
-
-### Models to install (models will also be installed before processing within the processing pipeline)
-
-> [!NOTE]
-> Only download models for languages that you are tagging text for.
-
-The [models_install.py script](./wikipedia_processing/models_install.py) allows you to install all of the required models and lexicons for all languages, these are tokenizer, sentence splitters, and semantic tagging models, it also allows you to install language specific models, and it will detail what models will be installed before using the `--describe` flag:
+Uploading directly to a HuggingFace Hub dataset repository (see [HuggingFace Authentication](#huggingface-authentication) above):
 
 ``` bash
-uv run wikipedia_processing/models_install.py --help
-                                                                                                                                                                                          
- Usage: models_install.py [OPTIONS]                                                                                                                                                       
-                                                                                                                                                                                          
- Install the language specific models. You can either select the languages you want to install or use the --all flag to install all language specific models.                             
-                                                                                                                                                                                          
- If you want to describe the models that will be installed use the --describe flag.                                                                                                       
-                                                                                                                                                                                          
- Example:                                                                                                                                                                                 
-                                                                                                                                                                                          
- To install all language specific models run:                                                                                                                                             
- python models_install.py --all                                                                                                                                                           
-                                                                                                                                                                                          
- To install only the English and Dutch language specific models run:                                                                                                                      
- python models_install.py -l English -l Dutch                                                                                                                                             
-                                                                                                                                                                                          
- To describe the models that will be installed run:                                                                                                                                       
- python models_install.py --describe                                                                                                                                                      
-                                                                                                                                                                                          
- To describe English specific models:                                                                                                                                                     
- python models_install.py -l English --describe                                                                                                                                           
-                                                                                                                                                                                          
-╭─ Options ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ --languages  -l      [Chinese|Danish|Dutch|English|Finnish|Italian|Portuguese|Spanish]  Install the language specific models for the given languages.                                  │
-│ --all        -a                                                                         Install all language specific models.                                                          │
-│ --describe   -d                                                                         Describe the models that will be installed and exit.                                           │
-│ --help                                                                                  Show this message and exit.                                                                    │
-╰────
+uv run processing_scripts/build_usas_wikipedia_dataset.py da ./log_data/ --hf-dataset-repo-id ucrelnlp/wikipedia-usas-mwe
 ```
 
-The following will download all of the models for all languages:
+Some options worth knowing about (run `--help` for the full list):
+* `--max-final-output-file-size`/`-e` - maximum size in MB of the final Parquet shards (default 200MB); distinct from `--max-output-file-size`/`-s`, which only governs intermediate staging files used during processing.
+* `--validation-percentage`/`-v` and `--max-validation-documents`/`-n` - control the train/validation split described above.
+* `--private`/`--public` - whether a Hub repository created by `--hf-dataset-repo-id` is private (default: private).
 
-```bash
-uv run wikipedia_processing/models_install.py --all
+``` bash
+uv run processing_scripts/build_usas_wikipedia_dataset.py da ./log_data/ -o -w 5 -t 2 -m 0.85 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --public
+```
+
+#### Uploading multiple languages to the same Hub repository
+
+All languages can share a single Hub dataset repository so users can pick a language, by running the script once per language against the same `--hf-dataset-repo-id`. Each run writes into its own `data/<wikipedia_language_code>/{train,validation}/` path within the repo, so nothing is overwritten between languages.
+
+For the Hub Dataset Viewer to expose each language as a selectable config with its train/validation splits, add a `configs:` block to the dataset repository's own README (its "dataset card"), keyed by `wikipedia_language_code` for consistency with [data/languages.yaml](data/languages.yaml) and the CLI, e.g.:
+
+```yaml
+configs:
+  - config_name: da
+    data_files:
+      - split: train
+        path: "data/da/train/*.parquet"
+      - split: validation
+        path: "data/da/validation/*.parquet"
+  - config_name: en
+    data_files:
+      - split: train
+        path: "data/en/train/*.parquet"
+      - split: validation
+        path: "data/en/validation/*.parquet"
 ```
 
 
+## Benchmarking spaCy model speed
+
+[processing_scripts/benchmark_da_spacy_model_speed.py](processing_scripts/benchmark_da_spacy_model_speed.py) compares the processing speed of the two Danish spaCy models (`da_core_news_lg` and `da_core_news_trf`) across a sweep of sentence counts, at a fixed sentence length of 21 tokens — both figures derived from the observed corpus statistics (an average of 362 sentences and 7556 tokens per document, i.e. ~21 tokens/sentence). It caps the tokens processed for any single benchmarked point at 100,000 by default.
+
+Results can be shown as a graph, a console table, or both, and the table can additionally be exported as a LaTeX `tabular`:
+
+``` bash
+# Save a comparison graph (default: ./da_spacy_model_speed.png)
+uv run processing_scripts/benchmark_da_spacy_model_speed.py
+
+# Print a table to the console instead
+uv run processing_scripts/benchmark_da_spacy_model_speed.py --format table
+
+# Also export the table as LaTeX, independent of --format
+uv run processing_scripts/benchmark_da_spacy_model_speed.py --latex-output ./results.tex
+```
+
+Run `--help` for the full list of options, including `--token-length`, `--max-tokens`, and `--num-points`.
+
+NOTE: the arguments used to produce the table and plot in the paper;
+
+``` bash
+uv run processing_scripts/benchmark_da_spacy_model_speed.py --token-length 21 --max-tokens 100000 --num-points 8 --format plot --output data/plots/da_spacy_model_speed.png --latex-output data/tables/da_spacy_model_speed.tex
+```
 
 ## License
 
