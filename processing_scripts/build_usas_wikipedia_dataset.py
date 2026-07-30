@@ -279,11 +279,12 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
     url_filter = SimpleURLFilter(urls_to_filter=TEST_SET_WIKIPEDIA_URLS)
     wikipedia_markdown_formatter = WikipediaMarkdownFormatter()
     word_statistics = WordStats(stats_logging_dir_str, language=data_trove_language)
-    reader_metadata_whitelist = MetadataWhitelistAnnotator(keys_to_keep=frozenset({"page_id", "title", "url"}))
+    reader_metadata_whitelist = MetadataWhitelistAnnotator(keys_to_keep=frozenset({"page_id", "title", "url", "version"}))
     output_writer_adapter = get_metadata_whitelist_writer_adapter(keys_to_keep=frozenset({
         "page_id",
         "title",
         "url",
+        "version",
         "start_end_sentence_character_indexes",
         "tokens",
         "tags",

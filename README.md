@@ -115,6 +115,7 @@ The processed data will contain the following fields:
 * `page_id` - Page ID `1171348`
 * `title` - Article title.
 * `url` - https://da.wikipedia.org/wiki/El_Salvador_ved_sommer-OL_2024
+* `version` (int|string) - revision/version identifier of the page (comes from [HuggingFaceFW finewiki](https://huggingface.co/datasets/HuggingFaceFW/finewiki)) `1167219203`
 * `start_end_sentence_character_indexes` - list of start and end character offsets for each sentence, e.g. `[[0, 10], [11, 15]]` the first sentence is between `text[0:10]`.
 * `tokens` - list of a list of tokens whereby the inner list represents the tokens for a given sentence, e.g. `tokens[0]` would contain all of the tokens in the first sentence.
 * `tags` - list of a list of a list of USAS tags that were predicted by the PyMUSAS Rule Based languages specific tagger. The inner list represents the most likely USAS tags for the given token, e.g. `tags[0][0]` will contain a list of most likely USAS tags for the first token in the first sentence, in most cases it will only contain one USAS tag. When it contains more than one USAS tag this represents a token in which the meaning is a combination of the given predicted USAS tags. Some tokens will contain no USAS tags as the Rule Based tagger cannot make prediction for all tokens.
@@ -147,6 +148,8 @@ Some options worth knowing about (run `--help` for the full list):
 * `--max-final-output-file-size`/`-e` - maximum size in MB of the final Parquet shards (default 200MB); distinct from `--max-output-file-size`/`-s`, which only governs intermediate staging files used during processing.
 * `--validation-percentage`/`-v` and `--max-validation-documents`/`-n` - control the train/validation split described above.
 * `--private`/`--public` - whether a Hub repository created by `--hf-dataset-repo-id` is private (default: public).
+
+An example of processing the Danish Wikipedia data locally but saving the data to the HuggingFace `ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia` repository.
 
 ``` bash
 uv run processing_scripts/build_usas_wikipedia_dataset.py da ./log_data/ -o -w 5 -t 2 -m 0.85 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --public
