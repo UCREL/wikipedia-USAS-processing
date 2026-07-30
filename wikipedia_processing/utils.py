@@ -283,28 +283,27 @@ def time_elapsed(start_time: float) -> float:
     return time.perf_counter() - start_time
 
 
-def parse_tag_mapper(value: str) -> dict[str, str]:
-    """Parse a JSON object string into a tag mapper dictionary.
+def parse_json_object(value: str) -> dict:
+    """Parse a JSON object string into a dictionary.
 
     Args:
-        value: A JSON-encoded object mapping USAS tag strings to their
-            replacement tag strings, e.g. `{"PUNCT": "Z9"}`.
+        value: A JSON-encoded object, e.g. `{"account": "myaccount"}`.
 
     Returns:
-        The decoded tag mapper dictionary.
+        The decoded dictionary.
 
     Raises:
         typer.BadParameter: If value is not valid JSON or does not decode to
             a JSON object.
 
     Examples:
-        >>> parse_tag_mapper('{"PUNCT": "Z9"}')
-        {'PUNCT': 'Z9'}
+        >>> parse_json_object('{"account": "myaccount"}')
+        {'account': 'myaccount'}
     """
     try:
-        tag_mapper = json.loads(value)
+        parsed = json.loads(value)
     except json.JSONDecodeError as error:
         raise typer.BadParameter(f"Invalid JSON: {value!r}") from error
-    if not isinstance(tag_mapper, dict):
-        raise typer.BadParameter(f"Expected a JSON object mapping tag strings to tag strings, got: {value!r}")
-    return tag_mapper
+    if not isinstance(parsed, dict):
+        raise typer.BadParameter(f"Expected a JSON object, got: {value!r}")
+    return parsed

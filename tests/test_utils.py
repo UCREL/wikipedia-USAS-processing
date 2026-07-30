@@ -13,7 +13,7 @@ from wikipedia_processing.utils import (
     get_progress_logger_function,
     get_usas_language_processing_information,
     get_valid_usas_language_processing_wikipedia_codes,
-    parse_tag_mapper,
+    parse_json_object,
     time_elapsed,
     truncate_to_255_bytes,
 )
@@ -263,27 +263,30 @@ def test_time_elapsed_zero_when_start_time_is_now(monkeypatch: pytest.MonkeyPatc
     ("value", "expected"),
     [
         # Docstring example.
-        ('{"PUNCT": "Z9"}', {"PUNCT": "Z9"}),
-        # Empty JSON object is a valid (no-op) tag mapper.
+        ('{"account": "myaccount"}', {"account": "myaccount"}),
+        # Empty JSON object is valid.
         ("{}", {}),
         # Multiple entries are all preserved.
         ('{"PUNCT": "Z9", "NUM1": "N1"}', {"PUNCT": "Z9", "NUM1": "N1"}),
+        # Nested objects/arrays are preserved as-is, not just flat string maps
+        # (e.g. --slurm-sbatch-args can carry structured values).
+        ('{"account": "myaccount", "nodelist": ["node1", "node2"], "extra": {"gpus": 2}}', {"account": "myaccount", "nodelist": ["node1", "node2"], "extra": {"gpus": 2}}),
     ],
-    ids=["docstring-example", "empty-object", "multiple-entries"],
+    ids=["docstring-example", "empty-object", "multiple-entries", "nested-object"],
 )
-def test_parse_tag_mapper_valid_json_object(value: str, expected: dict[str, str]) -> None:
-    assert parse_tag_mapper(value) == expected
+def test_parse_json_object_valid_json_object(value: str, expected: dict) -> None:
+    assert parse_json_object(value) == expected
 
 
-def test_parse_tag_mapper_invalid_json_raises_bad_parameter() -> None:
+def test_parse_json_object_invalid_json_raises_bad_parameter() -> None:
     with pytest.raises(typer.BadParameter, match="Invalid JSON"):
-        parse_tag_mapper("{not valid json")
+        parse_json_object("{not valid json")
 
 
-def test_parse_tag_mapper_empty_string_raises_bad_parameter() -> None:
+def test_parse_json_object_empty_string_raises_bad_parameter() -> None:
     # Empty string is not valid JSON at all.
     with pytest.raises(typer.BadParameter, match="Invalid JSON"):
-        parse_tag_mapper("")
+        parse_json_object("")
 
 
 @pytest.mark.parametrize(
@@ -291,6 +294,6 @@ def test_parse_tag_mapper_empty_string_raises_bad_parameter() -> None:
     ['["PUNCT", "Z9"]', '"PUNCT"', "42", "true", "null"],
     ids=["array", "string", "number", "boolean", "null"],
 )
-def test_parse_tag_mapper_non_object_json_raises_bad_parameter(value: str) -> None:
+def test_parse_json_object_non_object_json_raises_bad_parameter(value: str) -> None:
     with pytest.raises(typer.BadParameter, match="Expected a JSON object"):
-        parse_tag_mapper(value)
+        parse_json_object(value)

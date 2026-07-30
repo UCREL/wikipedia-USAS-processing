@@ -17,6 +17,9 @@ across 8 languages (English, Dutch, Spanish, Danish, Italian, Portuguese, Chines
   sentence-splitting and PyMUSAS tagging annotators.
 - `markdown_renderer.py` — `FineWikiPlainTextRenderer`, a `mistune.MarkdownRenderer` subclass
   that converts FineWiki markdown to plain text (drops tables/code/images/HTML, keeps inline math).
+- `executors.py` — `ExecutorBackend` (local/slurm choice), `SlurmExecutorSettings`, and
+  `PipelineExecutorFactory`, which builds either a `LocalPipelineExecutor` or a
+  `SlurmPipelineExecutor` per pipeline stage from a single shared backend config.
 - `utils.py` — `get_language_information` (loads `data/languages.yaml`), `truncate_to_255_bytes`.
   Note: `load_page_meta_data_file` is an unimplemented stub (returns `{}`).
 - `models_util.py` — builds language-specific spaCy pipelines: `get_language_tagger` (spaCy +

@@ -9,7 +9,6 @@ import shutil
 
 import datasets
 import typer
-from datatrove.executor import LocalPipelineExecutor
 from datatrove.pipeline.dedup.exact_dedup import (
     ExactDedupConfig,
     ExactDedupFilter,
@@ -31,6 +30,11 @@ from datatrove.pipeline.writers import HuggingFaceDatasetWriter, JsonlWriter, Pa
 from datatrove.utils.logging import logger as data_trove_logger
 from dotenv import load_dotenv
 
+from wikipedia_processing.executors import (
+    ExecutorBackend,
+    PipelineExecutorFactory,
+    SlurmExecutorSettings,
+)
 from wikipedia_processing.filters import (
     EmptyTextFilter,
     MinWordsDocumentFilter,
@@ -55,8 +59,8 @@ from wikipedia_processing.utils import (
     get_progress_logger_function,
     get_usas_language_processing_information,
     get_valid_usas_language_processing_wikipedia_codes,
+    parse_json_object,
     time_elapsed,
-    parse_tag_mapper,
 )
 
 TEST_SET_WIKIPEDIA_URLS = set({
@@ -122,10 +126,21 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
          validation_percentage: Annotated[float, typer.Option("-v", "--validation-percentage", help="Target percentage (0-100) of a language's documents assigned to the validation split; the rest go to train.")] = 10,
          max_validation_documents: Annotated[int, typer.Option("-n", "--max-validation-documents", help="Absolute cap on the number of documents in the validation split, regardless of --validation-percentage. The smaller of the percentage-based and absolute-cap counts wins.")] = 20,
          randomize_start_duration: Annotated[int, typer.Option("-r", "--randomize-start-duration", help="The maximum number of seconds to delay the start of each task to prevent all tasks from starting simultaneously and potentially overloading the system.")] = 5,
-         tag_mapper_json: Annotated[str, typer.Option("--tag-mapper", help="JSON object mapping USAS tag strings to replacement tag strings, applied to each token's tags during PyMUSAS annotation. Tags with no entry are kept unchanged.")] = '{"PUNCT": "Z9"}',):
+         tag_mapper_json: Annotated[str, typer.Option("--tag-mapper", help="JSON object mapping USAS tag strings to replacement tag strings, applied to each token's tags during PyMUSAS annotation. Tags with no entry are kept unchanged.")] = '{"PUNCT": "Z9"}',
+         executor_backend: Annotated[ExecutorBackend, typer.Option("--executor", help="Which DataTrove executor backend to run pipeline stages with: 'local' runs stages as local multiprocessing workers; 'slurm' submits each stage as a Slurm job array.")] = ExecutorBackend.local,
+         slurm_partition: Annotated[str | None, typer.Option("--slurm-partition", help="Slurm partition to submit jobs to. Required when --executor=slurm.")] = None,
+         slurm_time: Annotated[str | None, typer.Option("--slurm-time", help="Slurm job time limit, e.g. '2:00:00'. Required when --executor=slurm.")] = None,
+         slurm_cpus_per_task: Annotated[int, typer.Option("--slurm-cpus-per-task", help="Number of CPUs to request per Slurm task. Only used with --executor=slurm.")] = 1,
+         slurm_mem_per_cpu_gb: Annotated[int, typer.Option("--slurm-mem-per-cpu-gb", help="Memory in GB to request per CPU for Slurm tasks. Only used with --executor=slurm.")] = 2,
+         slurm_qos: Annotated[str, typer.Option("--slurm-qos", help="Slurm QOS to submit jobs under. Only used with --executor=slurm.")] = "normal",
+         slurm_venv_path: Annotated[Path | None, typer.Option("--slurm-venv-path", help="Path to a virtualenv to activate in each Slurm job. Mutually exclusive with --slurm-condaenv. Only used with --executor=slurm.")] = None,
+         slurm_condaenv: Annotated[str | None, typer.Option("--slurm-condaenv", help="Name of a conda environment to activate in each Slurm job. Mutually exclusive with --slurm-venv-path. Only used with --executor=slurm.")] = None,
+         slurm_mail_user: Annotated[str | None, typer.Option("--slurm-mail-user", help="Email address for Slurm job notifications. Only used with --executor=slurm.")] = None,
+         slurm_mail_type: Annotated[str, typer.Option("--slurm-mail-type", help="Slurm mail notification type(s), e.g. 'ALL', 'FAIL'. Only used with --executor=slurm.")] = "ALL",
+         slurm_sbatch_args_json: Annotated[str | None, typer.Option("--slurm-sbatch-args", help="JSON object of additional raw sbatch arguments to pass through, e.g. '{\"account\": \"myaccount\"}'. Only used with --executor=slurm.")] = None,):
 
     pipeline_start_time = time.perf_counter()
-    tag_mapper = parse_tag_mapper(tag_mapper_json)
+    tag_mapper = parse_json_object(tag_mapper_json)
     dataset_id = "HuggingFaceFW/finewiki"
     wikipedia_language_code_str: str = wikipedia_language_code.value
     dataset_load_kwargs = {
@@ -146,6 +161,38 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
         raise typer.BadParameter("--private can only be used with --hf-dataset-repo-id.")
     if hf_dataset_repo_id is None and hf_dataset_revision is not None:
         raise typer.BadParameter("--hf-dataset-revision can only be used with --hf-dataset-repo-id.")
+
+    slurm_settings: SlurmExecutorSettings | None = None
+    match executor_backend:
+        case ExecutorBackend.slurm:
+            if slurm_partition is None or slurm_time is None:
+                raise typer.BadParameter("--slurm-partition and --slurm-time are required when --executor=slurm.")
+            if slurm_venv_path is not None and slurm_condaenv is not None:
+                raise typer.BadParameter("--slurm-venv-path and --slurm-condaenv are mutually exclusive.")
+            slurm_settings = SlurmExecutorSettings(
+                partition=slurm_partition,
+                time=slurm_time,
+                cpus_per_task=slurm_cpus_per_task,
+                mem_per_cpu_gb=slurm_mem_per_cpu_gb,
+                qos=slurm_qos,
+                venv_path=slurm_venv_path,
+                condaenv=slurm_condaenv,
+                mail_user=slurm_mail_user,
+                mail_type=slurm_mail_type,
+                sbatch_args=parse_json_object(slurm_sbatch_args_json) if slurm_sbatch_args_json is not None else None,
+            )
+        case ExecutorBackend.local:
+            slurm_only_options = {
+                "--slurm-partition": slurm_partition,
+                "--slurm-time": slurm_time,
+                "--slurm-venv-path": slurm_venv_path,
+                "--slurm-condaenv": slurm_condaenv,
+                "--slurm-mail-user": slurm_mail_user,
+                "--slurm-sbatch-args": slurm_sbatch_args_json,
+            }
+            provided_slurm_only_options = [name for name, value in slurm_only_options.items() if value is not None]
+            if provided_slurm_only_options:
+                raise typer.BadParameter(f"{', '.join(provided_slurm_only_options)} can only be used with --executor=slurm.")
 
     number_of_workers = min(number_of_workers, os.process_cpu_count())
 
@@ -174,6 +221,14 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
     data_trove_logger.info(f"Number of buckets and hashes per bucket for MinHash: {minhash_number_of_buckets!r}, {minhash_hashes_per_bucket!r}")
     data_trove_logger.info(f"MinHash threshold: {min_hash_threshold!r}")
     data_trove_logger.info(f"Minimum number of words filter threshold: {min_words_filter_threshold!r}")
+    data_trove_logger.info(f"Executor backend: {executor_backend.value!r}")
+
+    executor_factory = PipelineExecutorFactory(
+        backend=executor_backend,
+        randomize_start_duration=randomize_start_duration,
+        skip_completed=overwrite,
+        slurm_settings=slurm_settings,
+    )
 
     language_meta_data = get_usas_language_processing_information(wikipedia_language_code)
     data_trove_language = language_meta_data["data_trove_language"]
@@ -265,6 +320,12 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
         minhash_dedup_clusters = MinhashDedupCluster(input_folder=minhash_dedup_buckets_dir, output_folder=minhash_dedup_clusters_dir, config=minhash_dedup_config)
         minhash_dedup_filter = MinhashDedupFilter(input_folder=minhash_dedup_clusters_dir)
 
+        train_validation_split_annotator = TrainValidationSplitAnnotator(
+            validation_percentage=validation_percentage,
+            max_validation_documents=max_validation_documents,
+            split_hash_metadata_key="page_id",
+        )
+
         logging_dir_minhash_sigs_str = create_sub_directory(Path(main_logging_dir_str), "minhash_dedup_sigs")
         logging_dir_minhash_buckets_str = create_sub_directory(Path(main_logging_dir_str), "minhash_dedup_buckets")
         logging_dir_minhash_clusters_str = create_sub_directory(Path(main_logging_dir_str), "minhash_dedup_clusters")
@@ -272,93 +333,78 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
         logging_dir_post_processing_str = create_sub_directory(Path(main_logging_dir_str), "post_processing")
         logging_dir_merged_stats_processing_str = create_sub_directory(Path(main_logging_dir_str), "merged_stats_processing")
 
-        reading_stage = LocalPipelineExecutor(
+        reading_stage = executor_factory.create(
             pipeline=[reader_pipe, get_progress_logger_function("reading"), page_id_title_filter, url_filter, reading_stage_output_pipe],
             tasks=number_data_downloading_tasks,
             workers=number_downloading_workers,
-            randomize_start_duration=randomize_start_duration,
-            skip_completed=overwrite,
-            logging_dir=logging_reading_dir
+            logging_dir=logging_reading_dir,
+            job_name="reading",
         )
-        initial_process_stage = LocalPipelineExecutor(
+        initial_process_stage = executor_factory.create(
             pipeline=[initial_processing_input_pipe, remove_family_tree_formatter, remove_lines_with_given_latex_commands_formatter, wikipedia_markdown_formatter, EmptyTextFilter(), min_words_document_filter, exact_intermediate_output_pipe],
             tasks=number_processing_tasks,
             workers=number_of_workers,
-            randomize_start_duration=randomize_start_duration,
-            skip_completed=overwrite,
             logging_dir=logging_dir_initial_process_str,
-            depends=reading_stage)
-        exact_sigs_stage = LocalPipelineExecutor(
+            depends=reading_stage,
+            job_name="initial_process")
+        exact_sigs_stage = executor_factory.create(
             pipeline=[exact_intermediate_read_pipe, exact_dedup_sig],
             tasks=number_processing_tasks,
             workers=number_of_workers,
-            randomize_start_duration=randomize_start_duration,
-            skip_completed=overwrite,
             logging_dir=logging_dir_exact_sigs_str,
-            depends=initial_process_stage
+            depends=initial_process_stage,
+            job_name="exact_dedup_sigs",
         )
-        exact_finds_stage = LocalPipelineExecutor(
+        exact_finds_stage = executor_factory.create(
             pipeline=[exact_dedup_finds],
             tasks=number_of_workers, # Has to be the same as finder_workers
             workers=number_of_workers, # Has to be the same as finder_workers
-            randomize_start_duration=randomize_start_duration,
-            skip_completed=overwrite,
             logging_dir=logging_dir_exact_finds_str,
-            depends=exact_sigs_stage)
-        exact_filter_stage = LocalPipelineExecutor(
+            depends=exact_sigs_stage,
+            job_name="exact_dedup_finds")
+        exact_filter_stage = executor_factory.create(
             pipeline=[exact_intermediate_read_pipe, exact_dedup_filter, minhash_intermediate_output_pipe],
             tasks=number_processing_tasks, # This has to match exact_sigs_stage
             workers=number_of_workers,
-            randomize_start_duration=randomize_start_duration,
-            skip_completed=overwrite,
             logging_dir=logging_dir_exact_filter_str,
-            depends=exact_finds_stage)
-        minhash_sigs_stage = LocalPipelineExecutor(
+            depends=exact_finds_stage,
+            job_name="exact_dedup_filter")
+        minhash_sigs_stage = executor_factory.create(
             pipeline=[minhash_intermediate_read_pipe, minhash_dedup_sig],
             tasks=number_processing_tasks,
             workers=number_of_workers,
-            randomize_start_duration=randomize_start_duration,
-            skip_completed=overwrite,
             logging_dir=logging_dir_minhash_sigs_str,
-            depends=exact_filter_stage)
-        minhash_buckets_stage = LocalPipelineExecutor(
+            depends=exact_filter_stage,
+            job_name="minhash_dedup_sigs")
+        minhash_buckets_stage = executor_factory.create(
             pipeline=[minhash_dedup_buckets],
             tasks=minhash_dedup_config.num_buckets,
             workers=number_of_workers,
-            randomize_start_duration=randomize_start_duration,
-            skip_completed=overwrite,
             logging_dir=logging_dir_minhash_buckets_str,
-            depends=minhash_sigs_stage)
-        minhash_clusters_stage = LocalPipelineExecutor(
+            depends=minhash_sigs_stage,
+            job_name="minhash_dedup_buckets")
+        minhash_clusters_stage = executor_factory.create(
             pipeline=[minhash_dedup_clusters],
             tasks=1,
             workers=1,
-            randomize_start_duration=randomize_start_duration,
-            skip_completed=overwrite,
             logging_dir=logging_dir_minhash_clusters_str,
-            depends=minhash_buckets_stage)
-        minhash_filter_stage = LocalPipelineExecutor(
+            depends=minhash_buckets_stage,
+            job_name="minhash_dedup_clusters")
+        minhash_filter_stage = executor_factory.create(
             pipeline=[minhash_intermediate_read_pipe, minhash_dedup_filter, word_statistics, minhash_filter_output_pipe],
             tasks=number_processing_tasks, # This has to match minhash_sigs_stage
             workers=number_of_workers,
-            randomize_start_duration=randomize_start_duration,
-            skip_completed=overwrite,
             logging_dir=logging_dir_minhash_filter_str,
-            depends=minhash_clusters_stage)
-        train_validation_split_annotator = TrainValidationSplitAnnotator(
-            validation_percentage=validation_percentage,
-            max_validation_documents=max_validation_documents,
-            split_hash_metadata_key="page_id",
-        )
-        post_processing_stage = LocalPipelineExecutor(
+            depends=minhash_clusters_stage,
+            job_name="minhash_dedup_filter")
+        post_processing_stage = executor_factory.create(
             pipeline=[minhash_filter_read_pipe, SentenceSplitterAnnotator(wikipedia_language_code_str), TokenPyMUSASAnnotator(wikipedia_language_code_str, tag_mapper=tag_mapper), train_validation_split_annotator, final_output_pipe],
             tasks=number_processing_tasks, # This has to match minhash_sigs_stage
             workers=number_of_workers,
-            randomize_start_duration=randomize_start_duration,
-            skip_completed=overwrite,
             logging_dir=logging_dir_post_processing_str,
-            depends=minhash_filter_stage)
-        merge_stage = LocalPipelineExecutor(
+            depends=minhash_filter_stage,
+            job_name="post_processing")
+        merge_stage = executor_factory.create(
             pipeline=[
                 StatsMerger(
                     input_folder=stats_logging_dir_str,
@@ -369,8 +415,9 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
             workers=1,
             logging_dir=logging_dir_merged_stats_processing_str,
             depends=post_processing_stage,
+            job_name="merged_stats",
         )
-        
+
         merge_stage.run()
         data_trove_logger.info(f"PIPELINE_RUNTIME_SECONDS={time_elapsed(pipeline_start_time):.2f}")
 
