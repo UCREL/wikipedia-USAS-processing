@@ -98,8 +98,8 @@ The languages that this repository covers and supports, of which this table is a
 
 ## Filtering and Processing
 
-Each Wikipedia articles goes through the following pipeline;
-* The Wikipedia article ID and title match an article within the **GA** or **FA** articles.
+Each Wikipedia article from [HuggingFaceFW finewiki](https://huggingface.co/datasets/HuggingFaceFW/finewiki) goes through the following pipeline;
+* The Wikipedia article ID and title match an article within the **GA** or **FA** articles (taken from the [ucrelnlp/wikipedia-ga-fa-ids dataset](https://huggingface.co/datasets/ucrelnlp/wikipedia-ga-fa-ids)).
 * The Wikipedia article is not an article that is in the test data. (manual list of Wikipedia article URLs)
 * Remove Wikipedia family tree tables, mathematical equations, and tables from the article text.
 * Remove any Markdown formatting like headers using [mistune Python package](https://github.com/lepture/mistune) from the article text.
@@ -140,17 +140,52 @@ uv run processing_scripts/build_usas_wikipedia_dataset.py da ./log_data/ --outpu
 Uploading directly to a HuggingFace Hub dataset repository (see [HuggingFace Authentication](#huggingface-authentication) above):
 
 ``` bash
-uv run processing_scripts/build_usas_wikipedia_dataset.py da ./log_data/ --hf-dataset-repo-id ucrelnlp/wikipedia-usas-mwe
+uv run processing_scripts/build_usas_wikipedia_dataset.py da ./log_data/ --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia
 ```
 
 Some options worth knowing about (run `--help` for the full list):
 * `--max-final-output-file-size`/`-e` - maximum size in MB of the final Parquet shards (default 200MB); distinct from `--max-output-file-size`/`-s`, which only governs intermediate staging files used during processing.
 * `--validation-percentage`/`-v` and `--max-validation-documents`/`-n` - control the train/validation split described above.
-* `--private`/`--public` - whether a Hub repository created by `--hf-dataset-repo-id` is private (default: private).
+* `--private`/`--public` - whether a Hub repository created by `--hf-dataset-repo-id` is private (default: public).
 
 ``` bash
 uv run processing_scripts/build_usas_wikipedia_dataset.py da ./log_data/ -o -w 5 -t 2 -m 0.85 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --public
 ```
+
+#### Running on Slurm
+
+By default the script runs each pipeline stage (reading, dedup, tagging, etc.) as local multiprocessing workers. Pass `--executor slurm` to instead submit each stage as a Slurm job array via [DataTrove's `SlurmPipelineExecutor`](https://github.com/huggingface/datatrove), which is useful when a single machine doesn't have enough CPUs/memory to process a language in reasonable time. Stages still run in the same dependency order — one stage's Slurm job array only starts once the previous stage's finishes.
+
+`--slurm-partition` and `--slurm-time` are required when `--executor slurm` is set; every other `--slurm-*` option is optional and only used with `--executor slurm` (passing any of them with the default `--executor local` is an error).
+
+``` bash
+uv run processing_scripts/build_usas_wikipedia_dataset.py da ./log_data/ \
+    --output-dir ./local_da/ \
+    --executor slurm \
+    --slurm-partition compute \
+    --slurm-time 4:00:00 \
+    --slurm-cpus-per-task 4 \
+    --slurm-mem-per-cpu-gb 4 \
+    -w 32
+```
+
+Some other Slurm options worth knowing about (run `--help` for the full list):
+* `--slurm-venv-path`/`--slurm-condaenv` - activate a virtualenv or conda environment in each Slurm job before running; mutually exclusive with each other.
+* `--slurm-qos` - Slurm QOS to submit jobs under (default `normal`).
+* `--slurm-mail-user`/`--slurm-mail-type` - get emailed on job events, e.g. `--slurm-mail-type FAIL`.
+* `--slurm-sbatch-args` - JSON object of any additional raw `sbatch` arguments, e.g. `'{"account": "myaccount"}'`.
+
+##### Understanding tasks, workers, and resources on Slurm
+
+The pipeline runs as a chain of dependent stages (reading → initial processing → exact dedup → MinHash dedup → post-processing/tagging → stats merge). With `--executor slurm`, **each stage is submitted as its own Slurm job array**, and a stage's job array is only submitted once the previous stage's array has fully finished — stages never run concurrently with each other.
+
+Within a single stage's job array:
+* `tasks` (derived from `-w`/`--number-of-workers` × `-t`/`--tasks-multiplier`) is the **array size** — the number of independent work units (array indices) that stage is split into, e.g. `sbatch --array=0-159` for 160 tasks.
+* `workers` (essentially `-w`/`--number-of-workers`) is a **concurrency throttle** on that array, e.g. `--array=0-159%32` means at most 32 array indices run at the same instant. It is **not** a node count, and `-w 32` does **not** reserve 32 nodes.
+* `--slurm-cpus-per-task` and `--slurm-mem-per-cpu-gb` are the resources requested **per array index** (per task), e.g. 4 CPUs and 4GB/CPU = 16GB for that one task. Slurm's scheduler then places each task on whatever node has free capacity — it may pack many concurrently-running tasks onto a single large node, or spread them across several smaller ones, entirely independently of `workers`. If you need specific node placement, pass the relevant raw flags via `--slurm-sbatch-args`.
+* `--slurm-time` is a **per-task limit, not a shared budget**: every task gets its own fresh clock starting when *that task* begins running, regardless of when the array was submitted or how long earlier tasks took. A task started 2 hours after the array began still gets the full time limit from its own start.
+* Because of the concurrency throttle, a stage's total wall-clock time can exceed the per-task time limit: e.g. 160 tasks at 32 concurrent, each taking close to the 4-hour limit, is roughly `ceil(160 / 32) × 4h ≈ 20h` for that stage to fully drain, even though no single task exceeds 4 hours.
+* With `--executor local`, `-w`/`--number-of-workers` is additionally capped by the CPU count of the machine running the script (`os.process_cpu_count()`), since local workers are real concurrent processes on that machine. This cap does **not** apply with `--executor slurm` — there, `-w` is only a concurrency throttle on the job array (see above) and is not limited by the submission host's core count.
 
 #### Uploading multiple languages to the same Hub repository
 

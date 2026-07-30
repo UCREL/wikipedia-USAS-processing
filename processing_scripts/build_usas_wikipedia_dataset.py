@@ -109,7 +109,7 @@ WikipediaLanguageCode = Enum("WikipediaLanguageCode", [(value, value) for value 
 
 def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argument(help="Wikipedia language code for the language you want to download and process data for.")],
          logging_dir: Annotated[Path, typer.Argument(help="Directory to save the language specific log too. Log folder will be `logging_dir/wikipedia_language_code`")],
-         number_of_workers: Annotated[int, typer.Option("-w", "--number-of-workers", help="The number of workers, whereby one worker is one CPU core, this value is capped by the number of CPUs.")] = 1,
+         number_of_workers: Annotated[int, typer.Option("-w", "--number-of-workers", help="The number of workers, whereby one worker is one CPU core. With --executor=local this value is capped by the number of CPUs on the machine running this script; with --executor=slurm it is only a concurrency throttle on each stage's Slurm job array and is not capped locally.")] = 1,
          tasks_multiplier: Annotated[int, typer.Option("-t", "--tasks-multiplier", help="Multiplier for the number of tasks to use for processing data based on the maximum number of workers.")] = 5,
          overwrite: Annotated[bool, typer.Option("-o", "--overwrite", help="Whether to overwrite existing data, this will also delete the existing log directory for the language if it exists.")] = False,
          min_hash_threshold: Annotated[float, typer.Option("-m", "--min-hash-threshold", help="Approximate Jaccard similarity threshold for minhash, to determine if a document is a duplicate, default value is what FineWeb choose.")] = 0.72,
@@ -231,7 +231,8 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
             if provided_slurm_only_options:
                 raise typer.BadParameter(f"{', '.join(provided_slurm_only_options)} can only be used with --executor=slurm.")
 
-    number_of_workers = min(number_of_workers, os.process_cpu_count())
+    if executor_backend is ExecutorBackend.local:
+        number_of_workers = min(number_of_workers, os.process_cpu_count())
 
     number_processing_tasks = number_of_workers * tasks_multiplier
     number_data_downloading_tasks = min(number_of_shards, number_processing_tasks)
