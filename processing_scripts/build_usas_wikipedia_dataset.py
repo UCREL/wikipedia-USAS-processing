@@ -138,7 +138,45 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
          slurm_mail_user: Annotated[str | None, typer.Option("--slurm-mail-user", help="Email address for Slurm job notifications. Only used with --executor=slurm.")] = None,
          slurm_mail_type: Annotated[str, typer.Option("--slurm-mail-type", help="Slurm mail notification type(s), e.g. 'ALL', 'FAIL'. Only used with --executor=slurm.")] = "ALL",
          slurm_sbatch_args_json: Annotated[str | None, typer.Option("--slurm-sbatch-args", help="JSON object of additional raw sbatch arguments to pass through, e.g. '{\"account\": \"myaccount\"}'. Only used with --executor=slurm.")] = None,):
+    """Build the USAS/MWE-tagged Wikipedia training corpus for a single language.
 
+    Streams the `HuggingFaceFW/finewiki` dataset for `wikipedia_language_code`,
+    restricts it to Good/Featured articles, cleans and deduplicates the text
+    (exact-match then MinHash near-duplicate removal), then runs sentence
+    splitting and PyMUSAS semantic/MWE tagging before splitting into
+    train/validation and writing Parquet shards either to a local directory or
+    directly to a HuggingFace Hub dataset repo.
+
+    The pipeline runs as a chain of dependent DataTrove executor stages
+    (reading, initial processing, exact dedup signature/find/filter, MinHash
+    dedup signature/buckets/clusters/filter, post-processing/tagging, and
+    stats merging), using either local multiprocessing workers or Slurm job
+    arrays depending on `executor_backend`.
+
+    Per-option details are shown in `--help`, generated from each option's own
+    `typer.Option`/`typer.Argument` help text; they are not repeated here.
+
+    Raises:
+        typer.BadParameter: If neither or both of `output_dir` and
+            `hf_dataset_repo_id` are given; if `hf_dataset_private` or
+            `hf_dataset_revision` is set without `hf_dataset_repo_id`; if
+            `executor_backend` is `slurm` and `slurm_partition` or
+            `slurm_time` is missing; if `executor_backend` is `slurm` and
+            both `slurm_venv_path` and `slurm_condaenv` are given; or if any
+            Slurm-only option is given while `executor_backend` is `local`.
+
+    Examples:
+        Process Danish Wikipedia locally and write Parquet to a directory:
+
+        $ uv run processing_scripts/build_usas_wikipedia_dataset.py \\
+              da ./log_data --output-dir ./local_da/ -w 4
+
+        Just report how many shards the dataset has, without processing 
+        (this does not use the logging or output directories or create them):
+
+        $ uv run processing_scripts/build_usas_wikipedia_dataset.py \\
+              da ./log_data --output-dir ./test --get-number-of-shards
+    """
     pipeline_start_time = time.perf_counter()
     tag_mapper = parse_json_object(tag_mapper_json)
     dataset_id = "HuggingFaceFW/finewiki"
@@ -153,7 +191,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
 
     if print_number_of_shards:
         print(number_of_shards)
-        typer.Exit(0)
+        raise typer.Exit(0)
 
     if (output_dir is None) == (hf_dataset_repo_id is None):
         raise typer.BadParameter("Exactly one of --output-dir or --hf-dataset-repo-id must be provided.")
