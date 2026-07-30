@@ -117,6 +117,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
          hf_dataset_repo_id: Annotated[str | None, typer.Option("--hf-dataset-repo-id", help="HuggingFace Hub dataset repository (`namespace/name`) to upload the final Parquet output to directly, e.g. `ucrelnlp/wikipedia-usas-mwe`. Mutually exclusive with --output-dir; exactly one of the two must be given.")] = None,
          hf_dataset_private: Annotated[bool, typer.Option("--private/--public", help="Whether to create the Hub dataset repo as private if it does not already exist. Only used with --hf-dataset-repo-id.")] = False,
          hf_local_working_dir: Annotated[Path | None, typer.Option("--hf-local-working-dir", help="Local staging directory used before uploading to the Hub. Only used with --hf-dataset-repo-id; defaults to a temporary directory that is cleaned up after upload.")] = None,
+         hf_dataset_revision: Annotated[str | None, typer.Option("--hf-dataset-revision", help="Branch (or other revision) of the Hub dataset repo to upload to, e.g. `main` or a custom branch name. Only used with --hf-dataset-repo-id; defaults to the repo's default branch.")] = None,
          max_final_output_file_size: Annotated[int, typer.Option("-e", "--max-final-output-file-size", help="Maximum size in MB of the final Parquet output shards, when the output is larger than this value it is split into multiple output files of up to this size. Distinct from --max-output-file-size, which only governs intermediate staging files.")] = 200,
          validation_percentage: Annotated[float, typer.Option("-v", "--validation-percentage", help="Target percentage (0-100) of a language's documents assigned to the validation split; the rest go to train.")] = 10,
          max_validation_documents: Annotated[int, typer.Option("-n", "--max-validation-documents", help="Absolute cap on the number of documents in the validation split, regardless of --validation-percentage. The smaller of the percentage-based and absolute-cap counts wins.")] = 20,
@@ -143,6 +144,8 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
         raise typer.BadParameter("Exactly one of --output-dir or --hf-dataset-repo-id must be provided.")
     if hf_dataset_repo_id is None and hf_dataset_private:
         raise typer.BadParameter("--private can only be used with --hf-dataset-repo-id.")
+    if hf_dataset_repo_id is None and hf_dataset_revision is not None:
+        raise typer.BadParameter("--hf-dataset-revision can only be used with --hf-dataset-repo-id.")
 
     number_of_workers = min(number_of_workers, os.process_cpu_count())
 
@@ -206,6 +209,8 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
             hf_writer_kwargs = {}
             if hf_local_working_dir is not None:
                 hf_writer_kwargs["local_working_dir"] = str(hf_local_working_dir.resolve())
+            if hf_dataset_revision is not None:
+                hf_writer_kwargs["revision"] = hf_dataset_revision
             final_output_pipe = HuggingFaceDatasetWriter(
                 dataset=hf_dataset_repo_id,
                 private=hf_dataset_private,
