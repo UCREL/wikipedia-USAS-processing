@@ -8,6 +8,7 @@ from datatrove.data import Document
 from datatrove.utils.logging import logger as data_trove_logger
 
 from wikipedia_processing.utils import (
+    compute_shard_scaled_tasks_and_workers,
     create_sub_directory,
     get_hashes_per_bucket,
     get_progress_logger_function,
@@ -184,6 +185,73 @@ def test_get_hashes_per_bucket_num_buckets_below_two_raises_value_error() -> Non
 def test_get_hashes_per_bucket_threshold_outside_open_interval_raises_value_error(threshold: float) -> None:
     with pytest.raises(ValueError, match="threshold must be in"):
         get_hashes_per_bucket(num_buckets=14, threshold=threshold)
+
+
+@pytest.mark.parametrize(
+    ("number_of_shards", "shard_tasks_multiplier", "min_tasks", "max_tasks", "max_workers", "expected"),
+    [
+        # Docstring example: small shard count keeps every worker to a single task.
+        (2, 3.0, 4, 200, 16, (6, 1)),
+        # Docstring example: shard count scales past max_tasks, capping workers too.
+        (1000, 3.0, 4, 200, 16, (16, 13)),
+        # Zero shards still gets clamped up to min_tasks.
+        (0, 3.0, 5, 200, 16, (5, 1)),
+        # Target tasks divide evenly across workers, no rounding up needed.
+        (4, 1.0, 1, 100, 2, (2, 2)),
+        # A single worker absorbs every task as its multiplier.
+        (10, 1.0, 1, 100, 1, (1, 10)),
+        # min_tasks == max_tasks fixes the target regardless of shard count.
+        (50, 2.0, 20, 20, 16, (16, 2)),
+        # round()'s banker's rounding (2.5 -> 2) affects the target task count.
+        (1, 2.5, 1, 100, 16, (2, 1)),
+    ],
+    ids=[
+        "docstring-example-small",
+        "docstring-example-large",
+        "zero-shards-clamped-to-min",
+        "even-division-no-rounding",
+        "single-worker-absorbs-all-tasks",
+        "min-equals-max-tasks-fixed-target",
+        "bankers-rounding-of-target-tasks",
+    ],
+)
+def test_compute_shard_scaled_tasks_and_workers(
+    number_of_shards: int,
+    shard_tasks_multiplier: float,
+    min_tasks: int,
+    max_tasks: int,
+    max_workers: int,
+    expected: tuple[int, int],
+) -> None:
+    assert compute_shard_scaled_tasks_and_workers(number_of_shards, shard_tasks_multiplier, min_tasks, max_tasks, max_workers) == expected
+
+
+@pytest.mark.parametrize(
+    ("min_tasks", "max_tasks", "max_workers"),
+    [
+        # min_tasks below the positive-integer floor.
+        (0, 200, 16),
+        # max_tasks below the positive-integer floor.
+        (4, 0, 16),
+        # max_workers below the positive-integer floor.
+        (4, 200, 0),
+    ],
+    ids=["min_tasks-not-positive", "max_tasks-not-positive", "max_workers-not-positive"],
+)
+def test_compute_shard_scaled_tasks_and_workers_non_positive_bound_raises_value_error(
+    min_tasks: int, max_tasks: int, max_workers: int
+) -> None:
+    with pytest.raises(ValueError, match="must all be >= 1"):
+        compute_shard_scaled_tasks_and_workers(
+            number_of_shards=2, shard_tasks_multiplier=3.0, min_tasks=min_tasks, max_tasks=max_tasks, max_workers=max_workers
+        )
+
+
+def test_compute_shard_scaled_tasks_and_workers_min_tasks_above_max_tasks_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="min_tasks must be <= max_tasks"):
+        compute_shard_scaled_tasks_and_workers(
+            number_of_shards=2, shard_tasks_multiplier=3.0, min_tasks=10, max_tasks=5, max_workers=16
+        )
 
 
 def test_get_progress_logger_function_yields_documents_unchanged() -> None:
