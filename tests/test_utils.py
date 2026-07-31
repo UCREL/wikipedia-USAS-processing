@@ -202,7 +202,7 @@ def test_get_hashes_per_bucket_threshold_outside_open_interval_raises_value_erro
         (10, 1.0, 1, 100, 1, (1, 10)),
         # min_tasks == max_tasks fixes the target regardless of shard count.
         (50, 2.0, 20, 20, 16, (16, 2)),
-        # round()'s banker's rounding (2.5 -> 2) affects the target task count.
+        # round()'s rounding (2.5 -> 2) affects the target task count.
         (1, 2.5, 1, 100, 16, (2, 1)),
     ],
     ids=[
@@ -212,7 +212,7 @@ def test_get_hashes_per_bucket_threshold_outside_open_interval_raises_value_erro
         "even-division-no-rounding",
         "single-worker-absorbs-all-tasks",
         "min-equals-max-tasks-fixed-target",
-        "bankers-rounding-of-target-tasks",
+        "rounding-of-target-tasks",
     ],
 )
 def test_compute_shard_scaled_tasks_and_workers(
