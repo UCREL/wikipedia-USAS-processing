@@ -8,6 +8,5 @@ __pycache__
 .env
 log_data
 data/*
-! data/languages.yaml
 local_*
 .claude/*local*
