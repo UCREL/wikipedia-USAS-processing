@@ -241,10 +241,12 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
     minhash_number_of_buckets = number_processing_tasks # The number of number of buckets must be divisible by the number of tasks
     minhash_hashes_per_bucket = get_hashes_per_bucket(minhash_number_of_buckets, min_hash_threshold)
     
+    main_logging_dir = logging_dir / wikipedia_language_code_str
+    if overwrite and main_logging_dir.exists():
+        data_trove_logger.info(f"Deleting existing log directory: {main_logging_dir!r}")
+        shutil.rmtree(str(main_logging_dir.resolve()), ignore_errors=False)
     main_logging_dir_str = create_sub_directory(logging_dir, wikipedia_language_code_str)
-    if overwrite and Path(main_logging_dir_str).exists():
-        data_trove_logger.info(f"Deleting existing log directory: {main_logging_dir_str!r}")
-        shutil.rmtree(main_logging_dir_str, ignore_errors=False)
+    
 
     stats_logging_dir_str = create_sub_directory(Path(main_logging_dir_str), "stats")
     merged_stats_logging_dir_str = create_sub_directory(Path(main_logging_dir_str), "merged_stats")
@@ -264,7 +266,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
     executor_factory = PipelineExecutorFactory(
         backend=executor_backend,
         randomize_start_duration=randomize_start_duration,
-        skip_completed=overwrite,
+        skip_completed=not overwrite,
         slurm_settings=slurm_settings,
     )
 
