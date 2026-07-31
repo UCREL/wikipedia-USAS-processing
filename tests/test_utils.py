@@ -1,3 +1,4 @@
+import os
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -10,6 +11,7 @@ from datatrove.utils.logging import logger as data_trove_logger
 from wikipedia_processing.utils import (
     compute_shard_scaled_tasks_and_workers,
     create_sub_directory,
+    get_available_cpu_count,
     get_hashes_per_bucket,
     get_progress_logger_function,
     get_usas_language_processing_information,
@@ -52,6 +54,25 @@ from wikipedia_processing.utils import (
 )
 def test_truncate_to_255_bytes(string_to_truncate: str, expected: str) -> None:
     assert truncate_to_255_bytes(string_to_truncate) == expected
+
+
+def test_get_available_cpu_count_uses_sched_getaffinity_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(os, "sched_getaffinity", lambda pid: {0, 1, 2}, raising=False)
+    assert get_available_cpu_count() == 3
+
+
+def test_get_available_cpu_count_falls_back_to_cpu_count_when_no_affinity(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Platforms without sched_getaffinity (e.g. macOS) don't have the attribute at all.
+    monkeypatch.delattr(os, "sched_getaffinity", raising=False)
+    monkeypatch.setattr(os, "cpu_count", lambda: 4)
+    assert get_available_cpu_count() == 4
+
+
+def test_get_available_cpu_count_falls_back_to_one_when_cpu_count_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    # os.cpu_count() can return None when the count can't be determined.
+    monkeypatch.delattr(os, "sched_getaffinity", raising=False)
+    monkeypatch.setattr(os, "cpu_count", lambda: None)
+    assert get_available_cpu_count() == 1
 
 
 def _write_language_data_file(tmp_path: Path) -> Path:

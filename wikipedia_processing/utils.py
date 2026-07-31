@@ -1,5 +1,6 @@
 import json
 import math
+import os
 import time
 from importlib.resources import files
 from pathlib import Path
@@ -28,6 +29,26 @@ def truncate_to_255_bytes(string_to_truncate: str) -> str:
         return string_to_truncate
     # Decode with errors='ignore' drops any incomplete multi-byte sequence at the cut
     return encoded[:255].decode("utf-8", errors="ignore")
+
+def get_available_cpu_count() -> int:
+    """Get the number of CPUs available to the current process.
+
+    Prefers `os.sched_getaffinity`, which respects CPU affinity masks and
+    container/cgroup CPU limits (the same semantics as the 3.13+-only
+    `os.process_cpu_count()`), falling back to `os.cpu_count()` on
+    platforms where `sched_getaffinity` doesn't exist (e.g. macOS).
+
+    Returns:
+        The number of available CPUs, or 1 if this cannot be determined.
+
+    Examples:
+        >>> get_available_cpu_count() >= 1
+        True
+    """
+    if hasattr(os, "sched_getaffinity"):
+        return len(os.sched_getaffinity(0))
+    return os.cpu_count() or 1
+
 
 def load_page_meta_data_file(meta_data_file: Path) -> dict[str, int]:
 

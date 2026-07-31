@@ -1,11 +1,9 @@
-import json
-import os
+import shutil
 import tempfile
 import time
 from enum import Enum
 from pathlib import Path
 from typing import Annotated
-import shutil
 
 import datasets
 import typer
@@ -26,7 +24,11 @@ from datatrove.pipeline.filters import LambdaFilter
 from datatrove.pipeline.readers import HuggingFaceDatasetReader, JsonlReader
 from datatrove.pipeline.stats import WordStats
 from datatrove.pipeline.stats.merger import StatsMerger
-from datatrove.pipeline.writers import HuggingFaceDatasetWriter, JsonlWriter, ParquetWriter
+from datatrove.pipeline.writers import (
+    HuggingFaceDatasetWriter,
+    JsonlWriter,
+    ParquetWriter,
+)
 from datatrove.utils.logging import logger as data_trove_logger
 from dotenv import load_dotenv
 
@@ -49,10 +51,15 @@ from wikipedia_processing.formatters import (
 from wikipedia_processing.pipelines.metadata_whitelist import MetadataWhitelistAnnotator
 from wikipedia_processing.pipelines.sentence_splitting import SentenceSplitterAnnotator
 from wikipedia_processing.pipelines.token_annotation import TokenPyMUSASAnnotator
-from wikipedia_processing.pipelines.train_validation_split import TrainValidationSplitAnnotator
-from wikipedia_processing.pipelines.writer_adapter import get_metadata_whitelist_writer_adapter
+from wikipedia_processing.pipelines.train_validation_split import (
+    TrainValidationSplitAnnotator,
+)
+from wikipedia_processing.pipelines.writer_adapter import (
+    get_metadata_whitelist_writer_adapter,
+)
 from wikipedia_processing.utils import (
     create_sub_directory,
+    get_available_cpu_count,
     get_hashes_per_bucket,
     get_number_of_shards,
     get_progress_logger_function,
@@ -232,7 +239,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
                 raise typer.BadParameter(f"{', '.join(provided_slurm_only_options)} can only be used with --executor=slurm.")
 
     if executor_backend is ExecutorBackend.local:
-        number_of_workers = min(number_of_workers, os.process_cpu_count())
+        number_of_workers = min(number_of_workers, get_available_cpu_count())
 
     number_processing_tasks = number_of_workers * tasks_multiplier
     number_data_downloading_tasks = min(number_of_shards, number_processing_tasks)
