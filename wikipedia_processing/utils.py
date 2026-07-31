@@ -242,6 +242,65 @@ def get_hashes_per_bucket(num_buckets: int, threshold: float) -> int:
     return round(r)
 
 
+def compute_shard_scaled_tasks_and_workers(
+    number_of_shards: int,
+    shard_tasks_multiplier: float,
+    min_tasks: int,
+    max_tasks: int,
+    max_workers: int,
+) -> tuple[int, int]:
+    """Derive a (workers, tasks_multiplier) pair sized off a dataset's shard count.
+
+    Intended for driving `build_usas_wikipedia_dataset.py`'s `-w`/`-t` options
+    per language: rather than using the same fixed task count for every
+    language regardless of dataset size, this scales the target task count
+    with `number_of_shards` (a proxy for data volume), so small languages
+    don't get more (mostly empty) tasks than they have data for, and large
+    languages get enough parallelism.
+
+    The returned pair satisfies
+    `number_of_workers * tasks_multiplier >= target_tasks`, where
+    `target_tasks = clamp(round(number_of_shards * shard_tasks_multiplier), min_tasks, max_tasks)`,
+    while never exceeding `max_workers` concurrent workers.
+
+    Args:
+        number_of_shards: The number of shards backing the language's
+            dataset, e.g. from `get_number_of_shards`.
+        shard_tasks_multiplier: Target number of tasks per shard.
+        min_tasks: Minimum target task count, regardless of shard count.
+        max_tasks: Maximum target task count, regardless of shard count.
+        max_workers: Maximum number of concurrent workers to use.
+
+    Returns:
+        A `(number_of_workers, tasks_multiplier)` tuple.
+
+    Raises:
+        ValueError: If `min_tasks`, `max_tasks`, or `max_workers` is not a
+            positive integer, or if `min_tasks` is greater than `max_tasks`.
+
+    Examples:
+        >>> compute_shard_scaled_tasks_and_workers(
+        ...     number_of_shards=2, shard_tasks_multiplier=3.0,
+        ...     min_tasks=4, max_tasks=200, max_workers=16,
+        ... )
+        (6, 1)
+        >>> compute_shard_scaled_tasks_and_workers(
+        ...     number_of_shards=1000, shard_tasks_multiplier=3.0,
+        ...     min_tasks=4, max_tasks=200, max_workers=16,
+        ... )
+        (16, 13)
+    """
+    if min_tasks < 1 or max_tasks < 1 or max_workers < 1:
+        raise ValueError(f"min_tasks, max_tasks, and max_workers must all be >= 1, got {min_tasks!r}, {max_tasks!r}, {max_workers!r}")
+    if min_tasks > max_tasks:
+        raise ValueError(f"min_tasks must be <= max_tasks, got min_tasks={min_tasks!r}, max_tasks={max_tasks!r}")
+
+    target_tasks = min(max(round(number_of_shards * shard_tasks_multiplier), min_tasks), max_tasks)
+    number_of_workers = min(max_workers, target_tasks)
+    tasks_multiplier = math.ceil(target_tasks / number_of_workers)
+    return number_of_workers, tasks_multiplier
+
+
 def get_progress_logger_function(step_name: str, log_every: int = 1000) -> Callable[[DocumentsPipeline, int, int], Generator[Document, None, None]]:
     """Build a DataTrove pipeline step that periodically logs document throughput.
 

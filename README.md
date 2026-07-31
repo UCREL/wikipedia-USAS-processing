@@ -212,6 +212,47 @@ configs:
         path: "data/en/validation/*.parquet"
 ```
 
+#### Running every training language at once
+
+[processing_scripts/run_all_training_languages.py](processing_scripts/run_all_training_languages.py)
+automates the "run once per language" pattern above: it reads every language with
+`training: true` (from the packaged
+[wikipedia_processing/data/usas_wikipedia_processing.yaml](wikipedia_processing/data/usas_wikipedia_processing.yaml)
+by default, or a custom file via `--languages-file`), and for each one launches
+`build_usas_wikipedia_dataset.py` as an independent, concurrently-running subprocess,
+using the same Python interpreter this script is itself running under (`sys.executable`)
+so it works from a Slurm login node or any other
+environment, as long as this script was launched with an
+interpreter that already has the project's dependencies (e.g. via `uv run`, or an
+activated venv). This only affects the process that submits/polls each language's Slurm
+job array; the environment each pipeline stage actually runs in on the compute nodes is
+still controlled independently via `--slurm-venv-path`/`--slurm-condaenv`.
+
+Rather than using the same fixed `-w`/`-t` for every language, it first checks each
+language's `finewiki` dataset shard count and scales `-w`/`-t` off that (via
+`--shard-tasks-multiplier`, clamped between `--min-tasks-per-language` and
+`--max-tasks-per-language`, and capped at `--max-workers-per-language` concurrent
+workers) — so small languages aren't handed more Slurm tasks than they have data to
+fill, and large languages get proportionally more parallelism. Any options this script
+doesn't declare itself (`--executor`, `--slurm-partition`, `--slurm-time`, `--overwrite`,
+etc.) are forwarded verbatim to every language's invocation.
+
+``` bash
+# Preview the computed shard counts / -w / -t / commands without launching anything:
+uv run processing_scripts/run_all_training_languages.py ./log_data --dry-run \
+    --executor slurm --slurm-partition compute --slurm-time 6:00:00
+
+# Real run, uploading every language to the same shared Hub repo:
+uv run processing_scripts/run_all_training_languages.py ./log_data \
+    --executor slurm --slurm-partition compute --slurm-time 6:00:00 \
+    --slurm-cpus-per-task 4 --slurm-mem-per-cpu-gb 4
+```
+
+Each language's process blocks until its own full stage chain finishes (same as a
+single-language run), so this command blocks until every language finishes — run it
+under `tmux`/`screen`/`nohup` for a real multi-hour run. Per-language stdout/stderr is
+captured under `logging_dir/driver/<wikipedia_code>.log`.
+
 
 ## Benchmarking spaCy model speed
 
