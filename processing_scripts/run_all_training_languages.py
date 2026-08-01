@@ -1,3 +1,4 @@
+import math
 import subprocess
 import sys
 import time
@@ -14,6 +15,7 @@ from wikipedia_processing.utils import (
     get_number_of_shards,
     get_usas_language_processing_information,
     get_valid_usas_language_processing_wikipedia_codes,
+    scale_workers_to_budget,
 )
 
 DATASET_ID = "HuggingFaceFW/finewiki"
@@ -30,6 +32,7 @@ def main(
     min_tasks_per_language: Annotated[int, typer.Option("--min-tasks-per-language", help="Minimum target task count for any language, regardless of shard count.")] = 4,
     max_tasks_per_language: Annotated[int, typer.Option("--max-tasks-per-language", help="Maximum target task count for any language, regardless of shard count. Kept well below Slurm's default job array size limit (1001).")] = 200,
     max_workers_per_language: Annotated[int, typer.Option("--max-workers-per-language", help="Maximum number of concurrent workers (-w) to use for any single language.")] = 16,
+    max_number_of_parallel_tasks: Annotated[int | None, typer.Option("--max-number-of-parallel-tasks", help="Optional cap on the total number of Slurm tasks allowed to run concurrently across ALL training languages combined, i.e. the sum of every language's -w. With --executor=slurm, -w is Slurm's own per-stage concurrency throttle (--array=...%W), and each language's own stages run one at a time, so this sum is an exact upper bound on total concurrently-running Slurm tasks at any instant. When set and the shard-scaled -w values would sum above this, each language's -w is shrunk proportionally to fit (see wikipedia_processing.utils.scale_workers_to_budget), and -t is recomputed so each language's total task count stays close to its original shard-scaled target. Must be >= the number of training languages. Only meaningful with --executor=slurm; with --executor=local, concurrency is already separately capped by the CPUs available to each language's own subprocess.")] = None,
     hf_dataset_repo_id: Annotated[str, typer.Option("--hf-dataset-repo-id", help="Shared HuggingFace Hub dataset repository every language uploads its Parquet output to, under its own data/<wikipedia_code>/ path.")] = "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia",
     stagger_seconds: Annotated[int, typer.Option("--stagger-seconds", help="Delay between launching each language's subprocess, to avoid submitting every language's Slurm jobs and HuggingFace dataset requests simultaneously.")] = 10,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Print each language's computed shard count, -w, -t, and the command that would run, without launching anything.")] = False,
@@ -61,9 +64,10 @@ def main(
     `typer.Option`/`typer.Argument` help text; they are not repeated here.
 
     Raises:
-        typer.Exit: With code 1 if no training languages are found, or if
-            any language's subprocess exits non-zero. With code 0 after a
-            `--dry-run` preview.
+        typer.Exit: With code 1 if no training languages are found, if
+            `--max-number-of-parallel-tasks` is set below the number of
+            training languages, or if any language's subprocess exits
+            non-zero. With code 0 after a `--dry-run` preview.
 
     Examples:
         Preview sizing without launching anything:
@@ -89,9 +93,16 @@ def main(
 
     rprint(f"Found {len(training_languages)} training languages: {[language['wikipedia_code'] for language in training_languages]}")
 
+    if max_number_of_parallel_tasks is not None and max_number_of_parallel_tasks < len(training_languages):
+        rprint(
+            f"[red]--max-number-of-parallel-tasks ({max_number_of_parallel_tasks}) is below the number of "
+            f"training languages ({len(training_languages)}); every language needs at least 1 worker.[/red]"
+        )
+        raise typer.Exit(1)
+
     driver_logging_dir = logging_dir / "driver"
 
-    planned_runs: list[tuple[str, list[str], Path]] = []
+    language_sizes: list[tuple[str, int, int, int]] = []
     for language in training_languages:
         wikipedia_code = language["wikipedia_code"]
         dataset: datasets.IterableDataset = datasets.load_dataset(DATASET_ID, split="train", name=wikipedia_code, streaming=True)
@@ -103,6 +114,22 @@ def main(
             max_tasks=max_tasks_per_language,
             max_workers=max_workers_per_language,
         )
+        language_sizes.append((wikipedia_code, number_of_shards, number_of_workers, tasks_multiplier))
+
+    if max_number_of_parallel_tasks is not None:
+        original_workers = [number_of_workers for _, _, number_of_workers, _ in language_sizes]
+        scaled_workers = scale_workers_to_budget(original_workers, budget=max_number_of_parallel_tasks)
+        rescaled_sizes: list[tuple[str, int, int, int]] = []
+        for (wikipedia_code, number_of_shards, number_of_workers, tasks_multiplier), new_number_of_workers in zip(language_sizes, scaled_workers):
+            if new_number_of_workers != number_of_workers:
+                original_total_tasks = number_of_workers * tasks_multiplier
+                tasks_multiplier = math.ceil(original_total_tasks / new_number_of_workers)
+                number_of_workers = new_number_of_workers
+            rescaled_sizes.append((wikipedia_code, number_of_shards, number_of_workers, tasks_multiplier))
+        language_sizes = rescaled_sizes
+
+    planned_runs: list[tuple[str, list[str], Path]] = []
+    for wikipedia_code, number_of_shards, number_of_workers, tasks_multiplier in language_sizes:
         command = [
             sys.executable, "processing_scripts/build_usas_wikipedia_dataset.py",
             wikipedia_code, str(logging_dir),
@@ -119,6 +146,10 @@ def main(
             f"(~{number_of_workers * tasks_multiplier} processing tasks)"
         )
         rprint(f"  command: {' '.join(command)}")
+
+    if max_number_of_parallel_tasks is not None:
+        total_workers = sum(number_of_workers for _, _, number_of_workers, _ in language_sizes)
+        rprint(f"Total workers across all languages: {total_workers} / {max_number_of_parallel_tasks}")
 
     if dry_run:
         rprint("[yellow]--dry-run set, not launching anything.[/yellow]")

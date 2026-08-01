@@ -17,6 +17,7 @@ from wikipedia_processing.utils import (
     get_usas_language_processing_information,
     get_valid_usas_language_processing_wikipedia_codes,
     parse_json_object,
+    scale_workers_to_budget,
     time_elapsed,
     truncate_to_255_bytes,
 )
@@ -273,6 +274,47 @@ def test_compute_shard_scaled_tasks_and_workers_min_tasks_above_max_tasks_raises
         compute_shard_scaled_tasks_and_workers(
             number_of_shards=2, shard_tasks_multiplier=3.0, min_tasks=10, max_tasks=5, max_workers=16
         )
+
+
+@pytest.mark.parametrize(
+    ("workers", "budget", "expected"),
+    [
+        # Docstring example: even entries split evenly.
+        ([16, 16, 16, 16], 40, [10, 10, 10, 10]),
+        # Docstring example: already within budget, returned unchanged.
+        ([4, 4, 4], 20, [4, 4, 4]),
+        # Skewed entries shrink proportionally to their "extra" above the floor of 1.
+        ([16, 8, 1, 1, 1, 1, 1, 1], 15, [6, 3, 1, 1, 1, 1, 1, 1]),
+        # Every entry already at the floor of 1: no extra weight to distribute from.
+        ([1, 1, 1], 3, [1, 1, 1]),
+        # budget exactly equal to the sum: no shrinking needed.
+        ([5, 3, 2], 10, [5, 3, 2]),
+        # budget exactly equal to len(workers): everyone clamped to the floor.
+        ([16, 8, 4], 3, [1, 1, 1]),
+    ],
+    ids=[
+        "even-split",
+        "already-within-budget",
+        "proportional-skew",
+        "all-at-floor-already",
+        "budget-equals-total-no-op",
+        "budget-equals-length-floors-everyone",
+    ],
+)
+def test_scale_workers_to_budget(workers: list[int], budget: int, expected: list[int]) -> None:
+    result = scale_workers_to_budget(workers, budget)
+    assert result == expected
+    assert all(1 <= scaled <= original for scaled, original in zip(result, workers))
+
+
+def test_scale_workers_to_budget_below_length_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="budget must be >= len\\(workers\\)"):
+        scale_workers_to_budget([16, 8, 4], budget=2)
+
+
+def test_scale_workers_to_budget_non_positive_worker_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="All worker counts must be >= 1"):
+        scale_workers_to_budget([16, 0, 4], budget=10)
 
 
 def test_get_progress_logger_function_yields_documents_unchanged() -> None:

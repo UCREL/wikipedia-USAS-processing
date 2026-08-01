@@ -322,6 +322,76 @@ def compute_shard_scaled_tasks_and_workers(
     return number_of_workers, tasks_multiplier
 
 
+def scale_workers_to_budget(workers: list[int], budget: int) -> list[int]:
+    """Shrink a list of worker counts so their sum fits within a shared budget.
+
+    Intended for capping the total number of concurrently-running Slurm
+    tasks across multiple independently-launched language pipelines: each
+    entry in `workers` is one language's own concurrency throttle (its
+    `-w`), and this redistributes them so their sum no longer exceeds
+    `budget`.
+
+    Every entry keeps a floor of 1. When shrinking is required, each
+    entry's *reduction* is taken out of its "extra" allocation above that
+    floor (`workers[i] - 1`), proportionally to that extra amount, using
+    the largest-remainder method to round the proportional shares to whole
+    workers -- so entries with a larger original allocation lose more
+    workers, in proportion, than entries already close to the floor, and
+    the returned total is exactly `budget` (when `sum(workers) > budget`).
+
+    Args:
+        workers: Each entry's original worker count. Every value must be
+            >= 1.
+        budget: Maximum total to distribute across all entries combined.
+            Must be >= len(workers), since every entry needs at least 1
+            worker.
+
+    Returns:
+        A new list, same length and order as `workers`, where every value
+        is `>= 1` and `<= workers[i]`, and the total is `<= budget`
+        (exactly `budget` whenever `sum(workers) > budget`).
+
+    Raises:
+        ValueError: If `budget < len(workers)`, or if any entry in
+            `workers` is < 1.
+
+    Examples:
+        >>> scale_workers_to_budget([16, 16, 16, 16], budget=40)
+        [10, 10, 10, 10]
+        >>> scale_workers_to_budget([4, 4, 4], budget=20)
+        [4, 4, 4]
+    """
+    if any(worker_count < 1 for worker_count in workers):
+        raise ValueError(f"All worker counts must be >= 1, got {workers!r}")
+    if budget < len(workers):
+        raise ValueError(f"budget must be >= len(workers) ({len(workers)}) so every entry keeps >= 1 worker, got budget={budget!r}")
+
+    total = sum(workers)
+    if total <= budget:
+        return list(workers)
+
+    extra_weights = [worker_count - 1 for worker_count in workers]
+    total_extra_weight = sum(extra_weights)
+    remaining_budget = budget - len(workers)
+
+    if total_extra_weight == 0:
+        return [1] * len(workers)
+
+    raw_extra_shares = [remaining_budget * extra_weight / total_extra_weight for extra_weight in extra_weights]
+    extra_scaled = [math.floor(share) for share in raw_extra_shares]
+    leftover = remaining_budget - sum(extra_scaled)
+
+    remainder_order = sorted(range(len(workers)), key=lambda index: raw_extra_shares[index] - extra_scaled[index], reverse=True)
+    for index in remainder_order:
+        if leftover <= 0:
+            break
+        if extra_scaled[index] < extra_weights[index]:
+            extra_scaled[index] += 1
+            leftover -= 1
+
+    return [1 + extra for extra in extra_scaled]
+
+
 def get_progress_logger_function(step_name: str, log_every: int = 1000) -> Callable[[DocumentsPipeline, int, int], Generator[Document, None, None]]:
     """Build a DataTrove pipeline step that periodically logs document throughput.
 
