@@ -24,7 +24,6 @@ from datatrove.pipeline.readers import HuggingFaceDatasetReader, JsonlReader
 from datatrove.pipeline.stats import WordStats
 from datatrove.pipeline.stats.merger import StatsMerger
 from datatrove.pipeline.writers import (
-    HuggingFaceDatasetWriter,
     JsonlWriter,
     ParquetWriter,
 )
@@ -47,6 +46,7 @@ from wikipedia_processing.formatters import (
     RemoveLinesWithGivenLatexCommandsFormatter,
     WikipediaMarkdownFormatter,
 )
+from wikipedia_processing.pipelines.hf_writer import ReusableHuggingFaceDatasetWriter
 from wikipedia_processing.pipelines.metadata_whitelist import MetadataWhitelistAnnotator
 from wikipedia_processing.pipelines.sentence_splitting import SentenceSplitterAnnotator
 from wikipedia_processing.pipelines.token_annotation import TokenPyMUSASAnnotator
@@ -328,7 +328,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
             hf_writer_kwargs["local_working_dir"] = hf_local_working_dir_str
         if hf_dataset_revision is not None:
             hf_writer_kwargs["revision"] = hf_dataset_revision
-        final_output_pipe = HuggingFaceDatasetWriter(
+        final_output_pipe = ReusableHuggingFaceDatasetWriter(
             dataset=hf_dataset_repo_id,
             private=hf_dataset_private,
             output_filename=final_output_filename,
