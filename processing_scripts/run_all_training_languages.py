@@ -55,10 +55,22 @@ def main(
     invocation, after this command's own computed `-w`/`-t`/
     `--hf-dataset-repo-id` options.
 
-    Each language's subprocess blocks until its own dependent chain of
-    pipeline stages fully finishes (same as a single-language run), so this
-    command itself blocks until every language finishes -- run it under
-    `tmux`/`screen`/`nohup` for a real multi-hour run.
+    With `--executor local`, each language's subprocess blocks until its own
+    dependent chain of pipeline stages fully finishes (same as a
+    single-language run), so this command itself blocks until every
+    language finishes -- run it under `tmux`/`screen`/`nohup` for a real
+    multi-hour run.
+
+    With `--executor slurm` this is NOT the case: DataTrove's
+    `SlurmPipelineExecutor` submits each stage's job array via `sbatch`
+    (chaining stages together with Slurm `--dependency` flags) and returns
+    as soon as submission succeeds, without polling for the jobs to
+    actually finish. So each language's subprocess -- and therefore this
+    command -- exits almost immediately after every stage for every
+    language has been submitted to Slurm; a "finished successfully" line
+    below only means that language's jobs were submitted without error, not
+    that its Slurm jobs have completed. Track real progress with `squeue`/
+    `sacct` or by tailing `logging_dir/<wikipedia_code>/`.
 
     Per-option details are shown in `--help`, generated from each option's own
     `typer.Option`/`typer.Argument` help text; they are not repeated here.
@@ -166,6 +178,9 @@ def main(
             process = subprocess.Popen(command, stdout=fp, stderr=subprocess.STDOUT)
         processes.append((wikipedia_code, process, log_file))
 
+    # With --executor=slurm, each subprocess exits once its jobs are submitted, not once
+    # they finish (see the docstring above), so "finished"/"failed" here reflects submission
+    # only -- an exit code of 0 does not mean that language's Slurm run has completed.
     failed_languages: list[str] = []
     for wikipedia_code, process, log_file in processes:
         return_code = process.wait()

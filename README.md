@@ -157,7 +157,9 @@ uv run processing_scripts/build_usas_wikipedia_dataset.py da ./log_data/ -o -w 5
 
 #### Running on Slurm
 
-By default the script runs each pipeline stage (reading, dedup, tagging, etc.) as local multiprocessing workers. Pass `--executor slurm` to instead submit each stage as a Slurm job array via [DataTrove's `SlurmPipelineExecutor`](https://github.com/huggingface/datatrove), which is useful when a single machine doesn't have enough CPUs/memory to process a language in reasonable time. Stages still run in the same dependency order — one stage's Slurm job array only starts once the previous stage's finishes.
+By default the script runs each pipeline stage (reading, dedup, tagging, etc.) as local multiprocessing workers. Pass `--executor slurm` to instead submit each stage as a Slurm job array via [DataTrove's `SlurmPipelineExecutor`](https://github.com/huggingface/datatrove), which is useful when a single machine doesn't have enough CPUs/memory to process a language in reasonable time. Stages still run in the same dependency order — one stage's Slurm job array only starts once the previous stage's finishes, enforced via Slurm `--dependency` chaining between the stages' `sbatch` calls, not by this script waiting in-process.
+
+Because of that chaining, `SlurmPipelineExecutor` submits every stage's job and then returns immediately — it does not poll Slurm for completion. So with `--executor slurm` this script itself exits as soon as all stages are submitted, well before the actual Slurm jobs finish; a clean exit (code 0) only means submission succeeded, not that processing has completed. Track real progress with `squeue`/`sacct` or by watching `logging_dir/`.
 
 `--slurm-partition` and `--slurm-time` are required when `--executor slurm` is set; every other `--slurm-*` option is optional and only used with `--executor slurm` (passing any of them with the default `--executor local` is an error).
 
@@ -242,15 +244,32 @@ etc.) are forwarded verbatim to every language's invocation.
 uv run processing_scripts/run_all_training_languages.py ./log_data --dry-run \
     --executor slurm --slurm-partition compute --slurm-time 6:00:00
 
+python processing_scripts/run_all_training_languages.py ./log_data --executor slurm --slurm-partition cpu-6h --slurm-time 4:00:00 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --slurm-mem-per-cpu-gb 2 --slurm-venv-path /mnt/nfs/homes/mooreap1/wikipedia-USAS-processing/venv/bin/python --slurm-cpus-per-task 2
+
+--dry-run
+
+uv run processing_scripts/run_all_training_languages.py ./log_data --executor slurm --slurm-partition cpu-6h --slurm-time 4:00:00 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --slurm-mem-per-cpu-gb 2 --slurm-venv-path /mnt/nfs/homes/mooreap1/wikipedia-USAS-processing/venv/bin/python --slurm-cpus-per-task 2 --dry-run --slurm-sbatch-args "'{\"nice\": 100}'"
+
+python processing_scripts/run_all_training_languages.py ./log_data --executor slurm --slurm-partition cpu-6h --slurm-time 4:00:00 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --slurm-mem-per-cpu-gb 2 --slurm-venv-path /mnt/nfs/homes/mooreap1/wikipedia-USAS-processing/venv/bin/python --slurm-cpus-per-task 2 --languages-file ./usas_wikipedia_processing.yaml --slurm-sbatch-args "'{\"nice\": 100}'"
+
 # Real run, uploading every language to the same shared Hub repo:
 uv run processing_scripts/run_all_training_languages.py ./log_data \
     --executor slurm --slurm-partition compute --slurm-time 6:00:00 \
     --slurm-cpus-per-task 4 --slurm-mem-per-cpu-gb 4
 ```
 
-Each language's process blocks until its own full stage chain finishes (same as a
-single-language run), so this command blocks until every language finishes — run it
-under `tmux`/`screen`/`nohup` for a real multi-hour run. Per-language stdout/stderr is
+With `--executor local`, each language's process blocks until its own full stage chain
+finishes (same as a single-language run), so this command blocks until every language
+finishes — run it under `tmux`/`screen`/`nohup` for a real multi-hour run.
+
+With `--executor slurm` this is **not** the case: DataTrove's `SlurmPipelineExecutor`
+submits each stage as a chained `sbatch` job array and returns as soon as submission
+succeeds, without waiting for the jobs to actually run (see [Running on
+Slurm](#running-on-slurm) above). So this command exits almost immediately after every
+stage for every language has been submitted — the `finished successfully`/`failed`
+messages it prints only reflect whether submission succeeded, not whether the Slurm jobs
+themselves have completed. Use `squeue`/`sacct`, or tail `logging_dir/<wikipedia_code>/`,
+to track the actual runs. Per-language stdout/stderr from the driver process itself is
 captured under `logging_dir/driver/<wikipedia_code>.log`.
 
 
