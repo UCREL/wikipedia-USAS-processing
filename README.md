@@ -191,6 +191,7 @@ Within a single stage's job array:
 * `--slurm-time` is a **per-task limit, not a shared budget**: every task gets its own fresh clock starting when *that task* begins running, regardless of when the array was submitted or how long earlier tasks took. A task started 2 hours after the array began still gets the full time limit from its own start.
 * Because of the concurrency throttle, a stage's total wall-clock time can exceed the per-task time limit: e.g. 160 tasks at 32 concurrent, each taking close to the 4-hour limit, is roughly `ceil(160 / 32) × 4h ≈ 20h` for that stage to fully drain, even though no single task exceeds 4 hours.
 * With `--executor local`, `-w`/`--number-of-workers` is additionally capped by the CPU count of the machine running the script (`os.process_cpu_count()`), since local workers are real concurrent processes on that machine. This cap does **not** apply with `--executor slurm` — there, `-w` is only a concurrency throttle on the job array (see above) and is not limited by the submission host's core count.
+* `-j`/`--tasks-per-job` (Slurm-only, default `1`) shrinks the **array size** itself: instead of one array index per task, each array index runs `tasks_per_job` tasks sequentially, one after another, inside the same allocation. A stage with 160 tasks and `-j 5` submits `sbatch --array=0-31` (32 array indices) instead of `0-159` — the same 160 tasks still all get run, just 5-at-a-time-in-series per array index rather than each getting its own index. This doesn't change `-w`/`-t`, concurrency, or resource requests per index at all; it only reduces how many array indices Slurm has to create in the first place, at the cost of each index taking up to `tasks_per_job` times as long. Useful when a Slurm admin caps the total number of array indices you can have submitted (running or pending) at once — see `--max-number-of-parallel-tasks` below, which sets this automatically across a multi-language run.
 
 #### Uploading multiple languages to the same Hub repository
 
@@ -271,6 +272,37 @@ messages it prints only reflect whether submission succeeded, not whether the Sl
 themselves have completed. Use `squeue`/`sacct`, or tail `logging_dir/<wikipedia_code>/`,
 to track the actual runs. Per-language stdout/stderr from the driver process itself is
 captured under `logging_dir/driver/<wikipedia_code>.log`.
+
+##### Staying under a Slurm submitted-jobs quota with `--max-number-of-parallel-tasks`
+
+Because every stage of a language's pipeline is chained by Slurm `--dependency` rather
+than by this script waiting in-process, launching several languages within seconds of
+each other (see `--stagger-seconds`) means **all of their stages get submitted to Slurm
+essentially at once** — most stay pending on their dependency, but a Slurm admin's
+`MaxSubmitJobsPerUser`-style quota typically counts pending and running array indices
+alike. That total is not something `-w`/`-t` can control (they only throttle
+concurrency of already-submitted indices, see above); the only way to actually shrink
+how many array indices get created is `-j`/`--tasks-per-job`.
+
+`--max-number-of-parallel-tasks` automates this: given a budget, it estimates each
+training language's own peak simultaneously-submitted array-index count (summed across
+its ~11 chained stages), proportionally shrinks each language's share of that budget
+when it doesn't fit, and works out a `-j`/`--tasks-per-job` value per language that
+brings its peak down to its share — appending `--tasks-per-job` to that language's
+forwarded `build_usas_wikipedia_dataset.py` command. It never touches `-w`/`-t` or the
+actual shard-scaled data-processing parallelism; the only effect is on how many Slurm
+array indices get created to do that same work. Every language has a fixed floor of 11
+array indices (once `-j` is large enough that every stage collapses to a single index),
+so the budget must be at least `11 × (number of training languages)`.
+
+``` bash
+# Cap the combined peak submitted array indices across all languages at 300:
+uv run processing_scripts/run_all_training_languages.py ./log_data --dry-run \
+    --executor slurm --slurm-partition compute --slurm-time 6:00:00 \
+    --max-number-of-parallel-tasks 300
+```
+
+Only meaningful with `--executor slurm`; it has no effect with `--executor local`.
 
 
 ## Benchmarking spaCy model speed
