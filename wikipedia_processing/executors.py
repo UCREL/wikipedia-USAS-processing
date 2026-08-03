@@ -113,6 +113,7 @@ class PipelineExecutorFactory:
         logging_dir: DataFolderLike,
         depends: PipelineExecutor | None = None,
         job_name: str = "data_processing",
+        tasks_per_job: int = 1,
     ) -> PipelineExecutor:
         """Build a single pipeline stage's executor for this factory's backend.
 
@@ -125,6 +126,11 @@ class PipelineExecutorFactory:
                 Must have been built by a factory with the same backend.
             job_name: Human-readable name for the stage. Only used by the
                 Slurm backend, to identify the stage's jobs in `squeue`.
+            tasks_per_job: How many tasks each submitted Slurm array element
+                runs, sequentially. Reduces the number of Slurm array
+                elements submitted for this stage from `tasks` to
+                `ceil(tasks / tasks_per_job)`. Only used by the Slurm
+                backend; ignored (no equivalent) on the local backend.
 
         Returns:
             A `LocalPipelineExecutor` or `SlurmPipelineExecutor`, depending
@@ -170,6 +176,7 @@ class PipelineExecutorFactory:
                     mail_user=cast(str, settings.mail_user),
                     mail_type=settings.mail_type,
                     sbatch_args=settings.sbatch_args,
+                    tasks_per_job=tasks_per_job,
                 )
             case _:
                 raise ValueError(f"Unsupported executor backend: {self.backend!r}")

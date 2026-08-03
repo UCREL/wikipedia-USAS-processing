@@ -1,4 +1,3 @@
-import math
 import subprocess
 import sys
 import time
@@ -12,10 +11,12 @@ from rich import print as rprint
 from wikipedia_processing.utils import (
     compute_shard_scaled_tasks_and_workers,
     create_sub_directory,
+    estimate_peak_submitted_slurm_jobs,
+    find_smallest_tasks_per_job_within_peak_budget,
     get_number_of_shards,
     get_usas_language_processing_information,
     get_valid_usas_language_processing_wikipedia_codes,
-    scale_workers_to_budget,
+    scale_counts_to_budget,
 )
 
 DATASET_ID = "HuggingFaceFW/finewiki"
@@ -32,7 +33,7 @@ def main(
     min_tasks_per_language: Annotated[int, typer.Option("--min-tasks-per-language", help="Minimum target task count for any language, regardless of shard count.")] = 4,
     max_tasks_per_language: Annotated[int, typer.Option("--max-tasks-per-language", help="Maximum target task count for any language, regardless of shard count. Kept well below Slurm's default job array size limit (1001).")] = 200,
     max_workers_per_language: Annotated[int, typer.Option("--max-workers-per-language", help="Maximum number of concurrent workers (-w) to use for any single language.")] = 16,
-    max_number_of_parallel_tasks: Annotated[int | None, typer.Option("--max-number-of-parallel-tasks", help="Optional cap on the total number of Slurm tasks allowed to run concurrently across ALL training languages combined, i.e. the sum of every language's -w. With --executor=slurm, -w is Slurm's own per-stage concurrency throttle (--array=...%W), and each language's own stages run one at a time, so this sum is an exact upper bound on total concurrently-running Slurm tasks at any instant. When set and the shard-scaled -w values would sum above this, each language's -w is shrunk proportionally to fit (see wikipedia_processing.utils.scale_workers_to_budget), and -t is recomputed so each language's total task count stays close to its original shard-scaled target. Must be >= the number of training languages. Only meaningful with --executor=slurm; with --executor=local, concurrency is already separately capped by the CPUs available to each language's own subprocess.")] = None,
+    max_number_of_parallel_tasks: Annotated[int | None, typer.Option("--max-number-of-parallel-tasks", help="Optional cap on the total number of Slurm array tasks that could be simultaneously SUBMITTED (running or pending-on-dependency) across ALL training languages combined -- e.g. to stay under a Slurm admin's MaxSubmitJobsPerUser-style quota, which counts submitted tasks regardless of running/pending state. Because each language's own dependent chain of pipeline stages is submitted to Slurm essentially all at once (chained only by --dependency=afterok), and every training language is launched within seconds of the others (see --stagger-seconds), the real constraint is the sum, across all languages, of each language's own peak simultaneously-submitted task count (see wikipedia_processing.utils.estimate_peak_submitted_slurm_jobs). This does NOT change -w/-t or each language's actual data-processing parallelism at all; instead, when set, each language's build_usas_wikipedia_dataset.py invocation is given a -j/--tasks-per-job value (DataTrove's own tasks_per_job) large enough to shrink its own peak submitted task count to fit the shared budget, via a proportional largest-remainder split (see wikipedia_processing.utils.scale_counts_to_budget) -- at the cost of each submitted Slurm array element then running that many tasks sequentially instead of in parallel. Must be >= the sum of every language's fixed floor of 11 (the minimum peak submitted task count achievable, once tasks_per_job is large enough that every stage collapses to a single array element). Only meaningful with --executor=slurm; with --executor=local there is no equivalent to -j and this option has no effect.")] = None,
     hf_dataset_repo_id: Annotated[str, typer.Option("--hf-dataset-repo-id", help="Shared HuggingFace Hub dataset repository every language uploads its Parquet output to, under its own data/<wikipedia_code>/ path.")] = "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia",
     stagger_seconds: Annotated[int, typer.Option("--stagger-seconds", help="Delay between launching each language's subprocess, to avoid submitting every language's Slurm jobs and HuggingFace dataset requests simultaneously.")] = 10,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Print each language's computed shard count, -w, -t, and the command that would run, without launching anything.")] = False,
@@ -77,9 +78,11 @@ def main(
 
     Raises:
         typer.Exit: With code 1 if no training languages are found, if
-            `--max-number-of-parallel-tasks` is set below the number of
-            training languages, or if any language's subprocess exits
-            non-zero. With code 0 after a `--dry-run` preview.
+            `--max-number-of-parallel-tasks` is set below the combined
+            floor of 11 per training language (the minimum peak submitted
+            Slurm tasks achievable for any language), or if any language's
+            subprocess exits non-zero. With code 0 after a `--dry-run`
+            preview.
 
     Examples:
         Preview sizing without launching anything:
@@ -105,13 +108,6 @@ def main(
 
     rprint(f"Found {len(training_languages)} training languages: {[language['wikipedia_code'] for language in training_languages]}")
 
-    if max_number_of_parallel_tasks is not None and max_number_of_parallel_tasks < len(training_languages):
-        rprint(
-            f"[red]--max-number-of-parallel-tasks ({max_number_of_parallel_tasks}) is below the number of "
-            f"training languages ({len(training_languages)}); every language needs at least 1 worker.[/red]"
-        )
-        raise typer.Exit(1)
-
     driver_logging_dir = logging_dir / "driver"
 
     language_sizes: list[tuple[str, int, int, int]] = []
@@ -128,40 +124,70 @@ def main(
         )
         language_sizes.append((wikipedia_code, number_of_shards, number_of_workers, tasks_multiplier))
 
+    tasks_per_job_by_language: list[int] = [1] * len(language_sizes)
     if max_number_of_parallel_tasks is not None:
-        original_workers = [number_of_workers for _, _, number_of_workers, _ in language_sizes]
-        scaled_workers = scale_workers_to_budget(original_workers, budget=max_number_of_parallel_tasks)
-        rescaled_sizes: list[tuple[str, int, int, int]] = []
-        for (wikipedia_code, number_of_shards, number_of_workers, tasks_multiplier), new_number_of_workers in zip(language_sizes, scaled_workers):
-            if new_number_of_workers != number_of_workers:
-                original_total_tasks = number_of_workers * tasks_multiplier
-                tasks_multiplier = math.ceil(original_total_tasks / new_number_of_workers)
-                number_of_workers = new_number_of_workers
-            rescaled_sizes.append((wikipedia_code, number_of_shards, number_of_workers, tasks_multiplier))
-        language_sizes = rescaled_sizes
+        original_peaks = [
+            estimate_peak_submitted_slurm_jobs(number_of_shards, number_of_workers, tasks_multiplier)
+            for _, number_of_shards, number_of_workers, tasks_multiplier in language_sizes
+        ]
+        floors = [
+            estimate_peak_submitted_slurm_jobs(
+                number_of_shards,
+                number_of_workers,
+                tasks_multiplier,
+                tasks_per_job=max(number_of_workers * tasks_multiplier, number_of_workers),
+            )
+            for _, number_of_shards, number_of_workers, tasks_multiplier in language_sizes
+        ]
+        total_floor = sum(floors)
+        if max_number_of_parallel_tasks < total_floor:
+            rprint(
+                f"[red]--max-number-of-parallel-tasks ({max_number_of_parallel_tasks}) is below the combined "
+                f"floor of {total_floor} (the minimum peak submitted Slurm tasks achievable across all "
+                f"{len(training_languages)} training languages).[/red]"
+            )
+            raise typer.Exit(1)
+
+        peak_budgets = scale_counts_to_budget(original_peaks, budget=max_number_of_parallel_tasks, floors=floors)
+        tasks_per_job_by_language = [
+            find_smallest_tasks_per_job_within_peak_budget(number_of_shards, number_of_workers, tasks_multiplier, peak_budget)
+            for (_, number_of_shards, number_of_workers, tasks_multiplier), peak_budget in zip(language_sizes, peak_budgets)
+        ]
 
     planned_runs: list[tuple[str, list[str], Path]] = []
-    for wikipedia_code, number_of_shards, number_of_workers, tasks_multiplier in language_sizes:
+    for (wikipedia_code, number_of_shards, number_of_workers, tasks_multiplier), tasks_per_job in zip(
+        language_sizes, tasks_per_job_by_language
+    ):
         command = [
             sys.executable, "processing_scripts/build_usas_wikipedia_dataset.py",
             wikipedia_code, str(logging_dir),
             "-w", str(number_of_workers),
             "-t", str(tasks_multiplier),
             "--hf-dataset-repo-id", hf_dataset_repo_id,
-            *ctx.args,
         ]
+        if tasks_per_job != 1:
+            command += ["--tasks-per-job", str(tasks_per_job)]
+        command += list(ctx.args)
+
         log_file = driver_logging_dir / f"{wikipedia_code}.log"
         planned_runs.append((wikipedia_code, command, log_file))
+        peak_submitted = estimate_peak_submitted_slurm_jobs(number_of_shards, number_of_workers, tasks_multiplier, tasks_per_job)
+        job_suffix = f" -j {tasks_per_job}" if tasks_per_job != 1 else ""
         rprint(
             f"[cyan]{wikipedia_code}[/cyan]: {number_of_shards} shards -> "
-            f"-w {number_of_workers} -t {tasks_multiplier} "
-            f"(~{number_of_workers * tasks_multiplier} processing tasks)"
+            f"-w {number_of_workers} -t {tasks_multiplier}{job_suffix} "
+            f"(~{number_of_workers * tasks_multiplier} processing tasks, peak {peak_submitted} submitted Slurm tasks)"
         )
         rprint(f"  command: {' '.join(command)}")
 
     if max_number_of_parallel_tasks is not None:
-        total_workers = sum(number_of_workers for _, _, number_of_workers, _ in language_sizes)
-        rprint(f"Total workers across all languages: {total_workers} / {max_number_of_parallel_tasks}")
+        total_peak = sum(
+            estimate_peak_submitted_slurm_jobs(number_of_shards, number_of_workers, tasks_multiplier, tasks_per_job)
+            for (_, number_of_shards, number_of_workers, tasks_multiplier), tasks_per_job in zip(
+                language_sizes, tasks_per_job_by_language
+            )
+        )
+        rprint(f"Total peak submitted Slurm tasks across all languages: {total_peak} / {max_number_of_parallel_tasks}")
 
     if dry_run:
         rprint("[yellow]--dry-run set, not launching anything.[/yellow]")

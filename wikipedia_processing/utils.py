@@ -1,6 +1,7 @@
 import json
 import math
 import os
+import shutil
 import time
 from importlib.resources import files
 from pathlib import Path
@@ -322,66 +323,65 @@ def compute_shard_scaled_tasks_and_workers(
     return number_of_workers, tasks_multiplier
 
 
-def scale_workers_to_budget(workers: list[int], budget: int) -> list[int]:
-    """Shrink a list of worker counts so their sum fits within a shared budget.
+def scale_counts_to_budget(counts: list[int], budget: int, floors: list[int] | None = None) -> list[int]:
+    """Shrink a list of counts so their sum fits within a shared budget.
 
-    Intended for capping the total number of concurrently-running Slurm
-    tasks across multiple independently-launched language pipelines: each
-    entry in `workers` is one language's own concurrency throttle (its
-    `-w`), and this redistributes them so their sum no longer exceeds
-    `budget`.
-
-    Every entry keeps a floor of 1. When shrinking is required, each
-    entry's *reduction* is taken out of its "extra" allocation above that
-    floor (`workers[i] - 1`), proportionally to that extra amount, using
-    the largest-remainder method to round the proportional shares to whole
-    workers -- so entries with a larger original allocation lose more
-    workers, in proportion, than entries already close to the floor, and
-    the returned total is exactly `budget` (when `sum(workers) > budget`).
+    Each entry is reduced towards its own floor (`floors[i]`, defaulting to
+    1) proportionally to its "extra" allocation above that floor
+    (`counts[i] - floors[i]`), using the largest-remainder method to round
+    the proportional shares to whole units -- so entries with a larger
+    original allocation lose more, in proportion, than entries already
+    close to their floor, and the returned total is exactly `budget` (when
+    `sum(counts) > budget`).
 
     Args:
-        workers: Each entry's original worker count. Every value must be
-            >= 1.
+        counts: Each entry's original count. Every value must be >= its
+            corresponding entry in `floors`.
         budget: Maximum total to distribute across all entries combined.
-            Must be >= len(workers), since every entry needs at least 1
-            worker.
+            Must be >= sum(floors), since every entry needs at least its
+            floor.
+        floors: Each entry's minimum allowed value. Defaults to 1 for every
+            entry when None. Must be the same length as `counts`.
 
     Returns:
-        A new list, same length and order as `workers`, where every value
-        is `>= 1` and `<= workers[i]`, and the total is `<= budget`
-        (exactly `budget` whenever `sum(workers) > budget`).
+        A new list, same length and order as `counts`, where every value
+        is `>= floors[i]` and `<= counts[i]`, and the total is `<= budget`
+        (exactly `budget` whenever `sum(counts) > budget`).
 
     Raises:
-        ValueError: If `budget < len(workers)`, or if any entry in
-            `workers` is < 1.
+        ValueError: If `budget < sum(floors)`, if any entry in `counts` is
+            less than its corresponding floor, or if `floors` is given
+            with a different length than `counts`.
 
     Examples:
-        >>> scale_workers_to_budget([16, 16, 16, 16], budget=40)
+        >>> scale_counts_to_budget([16, 16, 16, 16], budget=40)
         [10, 10, 10, 10]
-        >>> scale_workers_to_budget([4, 4, 4], budget=20)
+        >>> scale_counts_to_budget([4, 4, 4], budget=20)
         [4, 4, 4]
     """
-    if any(worker_count < 1 for worker_count in workers):
-        raise ValueError(f"All worker counts must be >= 1, got {workers!r}")
-    if budget < len(workers):
-        raise ValueError(f"budget must be >= len(workers) ({len(workers)}) so every entry keeps >= 1 worker, got budget={budget!r}")
+    if floors is None:
+        floors = [1] * len(counts)
+    if len(floors) != len(counts):
+        raise ValueError(f"floors must be the same length as counts, got {len(floors)!r} floors for {len(counts)!r} counts")
+    if any(count < floor for count, floor in zip(counts, floors)):
+        raise ValueError(f"Every count must be >= its floor, got counts={counts!r}, floors={floors!r}")
+    total_floor = sum(floors)
+    if budget < total_floor:
+        raise ValueError(f"budget must be >= sum(floors) ({total_floor}) so every entry keeps its floor, got budget={budget!r}")
 
-    total = sum(workers)
+    total = sum(counts)
     if total <= budget:
-        return list(workers)
+        return list(counts)
 
-    extra_weights = [worker_count - 1 for worker_count in workers]
+    extra_weights = [count - floor for count, floor in zip(counts, floors)]
     total_extra_weight = sum(extra_weights)
-    remaining_budget = budget - len(workers)
-
-    if total_extra_weight == 0:
-        return [1] * len(workers)
+    remaining_budget = budget - total_floor
 
     raw_extra_shares = [remaining_budget * extra_weight / total_extra_weight for extra_weight in extra_weights]
     extra_scaled = [math.floor(share) for share in raw_extra_shares]
     leftover = remaining_budget - sum(extra_scaled)
 
-    remainder_order = sorted(range(len(workers)), key=lambda index: raw_extra_shares[index] - extra_scaled[index], reverse=True)
+    remainder_order = sorted(range(len(counts)), key=lambda index: raw_extra_shares[index] - extra_scaled[index], reverse=True)
     for index in remainder_order:
         if leftover <= 0:
             break
@@ -389,7 +389,159 @@ def scale_workers_to_budget(workers: list[int], budget: int) -> list[int]:
             extra_scaled[index] += 1
             leftover -= 1
 
-    return [1 + extra for extra in extra_scaled]
+    return [floor + extra for floor, extra in zip(floors, extra_scaled)]
+
+
+def estimate_peak_submitted_slurm_jobs(
+    number_of_shards: int,
+    number_of_workers: int,
+    tasks_multiplier: int,
+    tasks_per_job: int = 1,
+) -> int:
+    """Estimate one language's peak simultaneously-submitted Slurm array tasks.
+
+    A use case for this function;
+
+    `build_usas_wikipedia_dataset.py` runs its pipeline as a chain of 11
+    dependent `SlurmPipelineExecutor` stages (reading, initial processing,
+    exact dedup signature/find/filter, MinHash signature/buckets/cluster/
+    filter, post-processing, stats merge). Because each stage's `.run()`
+    recursively launches every stage it `depends` on first, all 11 stages
+    are submitted to Slurm essentially at once (chained only by
+    `--dependency=afterok`), regardless of how long upstream stages
+    actually take to finish. This estimates the total number of Slurm
+    array-task elements across all 11 stages at that moment, which is what
+    a `MaxSubmitJobsPerUser`-style admin quota counts.
+
+    7 of the 11 stages (initial processing, exact dedup signature/filter,
+    MinHash signature/buckets/filter, post-processing) are sized to
+    `processing_tasks = number_of_workers * tasks_multiplier`; one stage
+    (reading) is sized to `downloading_tasks = min(number_of_shards,
+    processing_tasks)`; one stage (exact dedup find) is sized to
+    `number_of_workers`; and two stages (MinHash cluster, stats merge) are
+    always a single task. `tasks_per_job` groups multiple tasks into one
+    Slurm array element (see `SlurmPipelineExecutor`'s own `tasks_per_job`
+    parameter), so each stage contributes `ceil(stage_tasks /
+    tasks_per_job)` array elements instead of `stage_tasks`.
+
+    Note:
+        This mirrors `build_usas_wikipedia_dataset.py`'s stage
+        construction (currently 11 stages, 7 of them `processing_tasks`-
+        sized) and must be kept in sync with it if that stage layout ever
+        changes.
+
+    Args:
+        number_of_shards: The number of shards backing the language's
+            dataset, e.g. from `get_number_of_shards`.
+        number_of_workers: The `-w` value for the language.
+        tasks_multiplier: The `-t` value for the language.
+        tasks_per_job: How many Slurm tasks are grouped into a single
+            submitted Slurm array element. Must be >= 1.
+
+    Returns:
+        The estimated peak number of simultaneously-submitted Slurm array
+        task elements for this language. Monotonically non-increasing in
+        `tasks_per_job`, floors at exactly 11 once `tasks_per_job` is large
+        enough that every stage collapses to a single array element.
+
+    Raises:
+        ValueError: If `number_of_shards`, `number_of_workers`,
+            `tasks_multiplier`, or `tasks_per_job` is not a positive
+            integer.
+
+    Examples:
+        >>> estimate_peak_submitted_slurm_jobs(
+        ...     number_of_shards=1000, number_of_workers=16,
+        ...     tasks_multiplier=13, tasks_per_job=1,
+        ... )
+        1682
+        >>> estimate_peak_submitted_slurm_jobs(
+        ...     number_of_shards=1000, number_of_workers=16,
+        ...     tasks_multiplier=13, tasks_per_job=208,
+        ... )
+        11
+    """
+    if number_of_shards < 1 or number_of_workers < 1 or tasks_multiplier < 1 or tasks_per_job < 1:
+        raise ValueError(
+            "number_of_shards, number_of_workers, tasks_multiplier, and tasks_per_job must all be >= 1, "
+            f"got {number_of_shards!r}, {number_of_workers!r}, {tasks_multiplier!r}, {tasks_per_job!r}"
+        )
+
+    processing_tasks = number_of_workers * tasks_multiplier
+    downloading_tasks = min(number_of_shards, processing_tasks)
+
+    return (
+        math.ceil(downloading_tasks / tasks_per_job)
+        + 7 * math.ceil(processing_tasks / tasks_per_job)
+        + math.ceil(number_of_workers / tasks_per_job)
+        + 2
+    )
+
+
+def find_smallest_tasks_per_job_within_peak_budget(
+    number_of_shards: int,
+    number_of_workers: int,
+    tasks_multiplier: int,
+    peak_budget: int,
+) -> int:
+    """Find the smallest `tasks_per_job` keeping a language's peak submitted jobs within budget.
+
+    Binary searches over `tasks_per_job`, using
+    `estimate_peak_submitted_slurm_jobs`, exploiting that it is
+    monotonically non-increasing in `tasks_per_job`. Prefers the smallest
+    `tasks_per_job` that satisfies `peak_budget` so that stages still run
+    with as much genuine Slurm-level parallelism as possible (larger
+    `tasks_per_job` bundles more work sequentially into each submitted
+    array element).
+
+    Args:
+        number_of_shards: The number of shards backing the language's
+            dataset, e.g. from `get_number_of_shards`.
+        number_of_workers: The `-w` value for the language.
+        tasks_multiplier: The `-t` value for the language.
+        peak_budget: Maximum allowed peak number of simultaneously-
+            submitted Slurm array task elements for this language. Must be
+            >= 11, the fixed floor `estimate_peak_submitted_slurm_jobs`
+            reaches once `tasks_per_job` is large enough.
+
+    Returns:
+        The smallest `tasks_per_job` such that
+        `estimate_peak_submitted_slurm_jobs(..., tasks_per_job=tasks_per_job) <= peak_budget`.
+
+    Raises:
+        ValueError: If `peak_budget` is below the floor
+            `estimate_peak_submitted_slurm_jobs` reaches at its largest
+            possible `tasks_per_job`.
+
+    Examples:
+        >>> find_smallest_tasks_per_job_within_peak_budget(
+        ...     number_of_shards=1000, number_of_workers=16,
+        ...     tasks_multiplier=13, peak_budget=1700,
+        ... )
+        1
+        >>> find_smallest_tasks_per_job_within_peak_budget(
+        ...     number_of_shards=1000, number_of_workers=16,
+        ...     tasks_multiplier=13, peak_budget=50,
+        ... )
+        42
+    """
+    processing_tasks = number_of_workers * tasks_multiplier
+    upper_bound = max(processing_tasks, number_of_workers)
+    floor = estimate_peak_submitted_slurm_jobs(number_of_shards, number_of_workers, tasks_multiplier, tasks_per_job=upper_bound)
+    if peak_budget < floor:
+        raise ValueError(
+            f"peak_budget must be >= {floor} (the minimum peak achievable for this language's shard/worker/multiplier "
+            f"combination, at tasks_per_job={upper_bound}), got peak_budget={peak_budget!r}"
+        )
+
+    low, high = 1, upper_bound
+    while low < high:
+        mid = (low + high) // 2
+        if estimate_peak_submitted_slurm_jobs(number_of_shards, number_of_workers, tasks_multiplier, tasks_per_job=mid) <= peak_budget:
+            high = mid
+        else:
+            low = mid + 1
+    return low
 
 
 def get_progress_logger_function(step_name: str, log_every: int = 1000) -> Callable[[DocumentsPipeline, int, int], Generator[Document, None, None]]:
@@ -419,6 +571,32 @@ def get_progress_logger_function(step_name: str, log_every: int = 1000) -> Calla
                 yield document
         data_trove_logger.info(f"[{step_name}] rank={rank} finished, processed {count} documents total")
     return log_progress
+
+
+def get_intermediate_data_cleanup_function(intermediate_data_dir: Path) -> Callable[[DocumentsPipeline, int, int], Generator[Document, None, None]]:
+    """Build a DataTrove pipeline step that deletes a directory once run.
+
+    Drains `data` before deleting anything. DataTrove pipeline steps that
+    `yield` are Python generators, so their body does not execute until
+    iterated -- an upstream step's real work (e.g. `StatsMerger` writing its
+    merged output) only happens once this step actually consumes `data`, not
+    merely when it is called.
+
+    Args:
+        intermediate_data_dir: Directory to recursively delete once the
+            upstream pipeline step(s) have finished running.
+
+    Returns:
+        A callable with the DataTrove custom pipeline step signature
+        `(data, rank, world_size) -> DocumentsPipeline`.
+    """
+    def cleanup_intermediate_data(data: DocumentsPipeline, rank: int = 0, world_size: int = 1) -> Generator[Document, None, None]:
+        if data:
+            for document in cast(Generator[Document, None, None], data):
+                yield document
+        data_trove_logger.info(f"Removing intermediate data directory: {intermediate_data_dir!r}")
+        shutil.rmtree(intermediate_data_dir, ignore_errors=True)
+    return cleanup_intermediate_data
 
 
 def time_elapsed(start_time: float) -> float:

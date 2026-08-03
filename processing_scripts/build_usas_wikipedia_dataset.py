@@ -1,5 +1,4 @@
 import shutil
-import tempfile
 import time
 from enum import Enum
 from pathlib import Path
@@ -61,6 +60,7 @@ from wikipedia_processing.utils import (
     create_sub_directory,
     get_available_cpu_count,
     get_hashes_per_bucket,
+    get_intermediate_data_cleanup_function,
     get_number_of_shards,
     get_progress_logger_function,
     get_usas_language_processing_information,
@@ -126,7 +126,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
          output_dir: Annotated[Path | None, typer.Option("--output-dir", help="Local directory to write the final Parquet output data to, in `output_dir/data/<language>/{train,validation}/` subfolders. Mutually exclusive with --hf-dataset-repo-id; exactly one of the two must be given.")] = None,
          hf_dataset_repo_id: Annotated[str | None, typer.Option("--hf-dataset-repo-id", help="HuggingFace Hub dataset repository (`namespace/name`) to upload the final Parquet output to directly, e.g. `ucrelnlp/wikipedia-usas-mwe`. Mutually exclusive with --output-dir; exactly one of the two must be given.")] = None,
          hf_dataset_private: Annotated[bool, typer.Option("--private/--public", help="Whether to create the Hub dataset repo as private if it does not already exist. Only used with --hf-dataset-repo-id.")] = False,
-         hf_local_working_dir: Annotated[Path | None, typer.Option("--hf-local-working-dir", help="Local staging directory used before uploading to the Hub. Only used with --hf-dataset-repo-id; defaults to a temporary directory that is cleaned up after upload.")] = None,
+         hf_local_working_dir: Annotated[Path | None, typer.Option("--hf-local-working-dir", help="Local staging directory used before uploading to the Hub. Only used with --hf-dataset-repo-id; defaults to a subdirectory under the language's logging directory, which is removed once the whole pipeline finishes successfully.")] = None,
          hf_dataset_revision: Annotated[str | None, typer.Option("--hf-dataset-revision", help="Branch (or other revision) of the Hub dataset repo to upload to, e.g. `main` or a custom branch name. Only used with --hf-dataset-repo-id; defaults to the repo's default branch.")] = None,
          max_final_output_file_size: Annotated[int, typer.Option("-e", "--max-final-output-file-size", help="Maximum size in MB of the final Parquet output shards, when the output is larger than this value it is split into multiple output files of up to this size. Distinct from --max-output-file-size, which only governs intermediate staging files.")] = 200,
          validation_percentage: Annotated[float, typer.Option("-v", "--validation-percentage", help="Target percentage (0-100) of a language's documents assigned to the validation split; the rest go to train.")] = 10,
@@ -134,6 +134,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
          randomize_start_duration: Annotated[int, typer.Option("-r", "--randomize-start-duration", help="The maximum number of seconds to delay the start of each task to prevent all tasks from starting simultaneously and potentially overloading the system.")] = 5,
          tag_mapper_json: Annotated[str, typer.Option("--tag-mapper", help="JSON object mapping USAS tag strings to replacement tag strings, applied to each token's tags during PyMUSAS annotation. Tags with no entry are kept unchanged.")] = '{"PUNCT": "Z9"}',
          executor_backend: Annotated[ExecutorBackend, typer.Option("--executor", help="Which DataTrove executor backend to run pipeline stages with: 'local' runs stages as local multiprocessing workers; 'slurm' submits each stage as a Slurm job array.")] = ExecutorBackend.local,
+         tasks_per_job: Annotated[int, typer.Option("-j", "--tasks-per-job", help="How many tasks each submitted Slurm array element runs, sequentially, before that array element finishes. Reduces the number of Slurm array elements submitted per stage from its task count to ceil(tasks / tasks_per_job), at the cost of each array element taking tasks_per_job times as long. Only used with --executor=slurm.")] = 1,
          slurm_partition: Annotated[str | None, typer.Option("--slurm-partition", help="Slurm partition to submit jobs to. Required when --executor=slurm.")] = None,
          slurm_time: Annotated[str | None, typer.Option("--slurm-time", help="Slurm job time limit, e.g. '2:00:00'. Required when --executor=slurm.")] = None,
          slurm_cpus_per_task: Annotated[int, typer.Option("--slurm-cpus-per-task", help="Number of CPUs to request per Slurm task. Only used with --executor=slurm.")] = 1,
@@ -233,6 +234,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
                 "--slurm-condaenv": slurm_condaenv,
                 "--slurm-mail-user": slurm_mail_user,
                 "--slurm-sbatch-args": slurm_sbatch_args_json,
+                "--tasks-per-job": tasks_per_job if tasks_per_job != 1 else None,
             }
             provided_slurm_only_options = [name for name, value in slurm_only_options.items() if value is not None]
             if provided_slurm_only_options:
@@ -253,7 +255,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
         data_trove_logger.info(f"Deleting existing log directory: {main_logging_dir!r}")
         shutil.rmtree(str(main_logging_dir.resolve()), ignore_errors=False)
     main_logging_dir_str = create_sub_directory(logging_dir, wikipedia_language_code_str)
-    
+    tmp_dir_path = Path(create_sub_directory(Path(main_logging_dir_str), "intermediate_data"))
 
     stats_logging_dir_str = create_sub_directory(Path(main_logging_dir_str), "stats")
     merged_stats_logging_dir_str = create_sub_directory(Path(main_logging_dir_str), "merged_stats")
@@ -301,184 +303,201 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
         "mwes",
     }))
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_dir_path = Path(tmp_dir)
-        generic_output_filename = f"{wikipedia_language_code_str}" + "${rank}.jsonl.gz"
-        # Converting to MB
-        max_file_size_in_bytes = int(max_output_file_size * 10e5)
+    generic_output_filename = f"{wikipedia_language_code_str}" + "${rank}.jsonl.gz"
+    # Converting to MB
+    max_file_size_in_bytes = int(max_output_file_size * 10e5)
 
-        final_output_filename = f"data/{wikipedia_language_code_str}" + "/${split}/${rank}.parquet"
-        max_final_output_file_size_in_bytes = max_final_output_file_size * 1024 * 1024
-        if output_dir is not None:
-            final_output_pipe = ParquetWriter(
-                output_folder=str(output_dir.resolve()),
-                output_filename=final_output_filename,
-                compression="zstd",
-                expand_metadata=True,
-                adapter=output_writer_adapter,
-                max_file_size=max_final_output_file_size_in_bytes,
-            )
+    final_output_filename = f"data/{wikipedia_language_code_str}" + "/${split}/${rank}.parquet"
+    max_final_output_file_size_in_bytes = max_final_output_file_size * 1024 * 1024
+    if output_dir is not None:
+        final_output_pipe = ParquetWriter(
+            output_folder=str(output_dir.resolve()),
+            output_filename=final_output_filename,
+            compression="zstd",
+            expand_metadata=True,
+            adapter=output_writer_adapter,
+            max_file_size=max_final_output_file_size_in_bytes,
+        )
+    else:
+        assert hf_dataset_repo_id is not None
+        hf_writer_kwargs = {}
+        if hf_local_working_dir is not None:
+            hf_writer_kwargs["local_working_dir"] = str(hf_local_working_dir.resolve())
         else:
-            assert hf_dataset_repo_id is not None
-            hf_writer_kwargs = {}
-            if hf_local_working_dir is not None:
-                hf_writer_kwargs["local_working_dir"] = str(hf_local_working_dir.resolve())
-            else:
-                hf_local_working_dir_str = create_sub_directory(tmp_dir_path, "hf_local_working_dir")
-                hf_writer_kwargs["local_working_dir"] = hf_local_working_dir_str
-            if hf_dataset_revision is not None:
-                hf_writer_kwargs["revision"] = hf_dataset_revision
-            final_output_pipe = HuggingFaceDatasetWriter(
-                dataset=hf_dataset_repo_id,
-                private=hf_dataset_private,
-                output_filename=final_output_filename,
-                compression="zstd",
-                expand_metadata=True,
-                adapter=output_writer_adapter,
-                max_file_size=max_final_output_file_size_in_bytes,
-                **hf_writer_kwargs,
-            )
-
-        reading_intermediate_data_dir = create_sub_directory(tmp_dir_path, "reading_intermediate")
-        reading_stage_output_pipe = JsonlWriter(reading_intermediate_data_dir, output_filename=generic_output_filename, compression="infer", expand_metadata=False, max_file_size=max_file_size_in_bytes)
-        initial_processing_input_pipe = JsonlReader(reading_intermediate_data_dir, glob_pattern="*.jsonl.gz", compression="infer")
-
-        exact_intermediate_data_dir = create_sub_directory(tmp_dir_path, "exact_intermediate")
-        exact_intermediate_output_pipe = JsonlWriter(output_folder=exact_intermediate_data_dir, output_filename=generic_output_filename, compression="infer", expand_metadata=False, max_file_size=max_file_size_in_bytes)
-        exact_intermediate_read_pipe = JsonlReader(exact_intermediate_data_dir, glob_pattern="*.jsonl.gz", compression="infer")
-        
-        exact_dedup_config = ExactDedupConfig(content_getter=lambda x: x.text)
-        exact_dedup_sigs_dir = create_sub_directory(tmp_dir_path, "exact_dedup_sigs")
-        exact_dedup_finds_dir = create_sub_directory(tmp_dir_path, "exact_dedup_finds")
-        
-        exact_dedup_sig = ExactDedupSignature(output_folder=exact_dedup_sigs_dir, config=exact_dedup_config, finder_workers=number_of_workers)
-        exact_dedup_finds = ExactFindDedups(exact_dedup_sigs_dir, exact_dedup_finds_dir, config=exact_dedup_config)
-        exact_dedup_filter = ExactDedupFilter(exact_dedup_finds_dir, config=exact_dedup_config)
-
-        logging_reading_dir = create_sub_directory(Path(main_logging_dir_str), "reading")
-        logging_dir_initial_process_str = create_sub_directory(Path(main_logging_dir_str), "initial_process")
-        logging_dir_exact_sigs_str = create_sub_directory(Path(main_logging_dir_str), "exact_dedup_sigs")
-        logging_dir_exact_finds_str = create_sub_directory(Path(main_logging_dir_str), "exact_dedup_finds")
-        logging_dir_exact_filter_str = create_sub_directory(Path(main_logging_dir_str), "exact_dedup_filter")
-
-        minhash_intermediate_data_dir = create_sub_directory(tmp_dir_path, "minhash_intermediate")
-        minhash_intermediate_output_pipe = JsonlWriter(output_folder=minhash_intermediate_data_dir, output_filename=generic_output_filename, compression="infer", expand_metadata=False, max_file_size=max_file_size_in_bytes)
-        minhash_intermediate_read_pipe = JsonlReader(minhash_intermediate_data_dir, glob_pattern="*.jsonl.gz", compression="infer")
-        
-        minhash_filter_data_dir = create_sub_directory(tmp_dir_path, "minhash_filter")
-        minhash_filter_read_pipe = JsonlReader(minhash_filter_data_dir, glob_pattern="*.jsonl.gz", compression="infer")
-        minhash_filter_output_pipe = JsonlWriter(output_folder=minhash_filter_data_dir, output_filename=generic_output_filename, compression="infer", expand_metadata=False, max_file_size=max_file_size_in_bytes)
-        
-        minhash_dedup_config = MinhashConfig(num_buckets=minhash_number_of_buckets, hashes_per_bucket=minhash_hashes_per_bucket, n_grams=5)
-        minhash_dedup_sigs_dir = create_sub_directory(tmp_dir_path, "minhash_dedup_sigs")
-        minhash_dedup_buckets_dir = create_sub_directory(tmp_dir_path, "minhash_dedup_buckets")
-        minhash_dedup_clusters_dir = create_sub_directory(tmp_dir_path, "minhash_dedup_clusters")
-
-        minhash_dedup_sig = MinhashDedupSignature(output_folder=minhash_dedup_sigs_dir, config=minhash_dedup_config, language=data_trove_language)
-        minhash_dedup_buckets = MinhashDedupBuckets(input_folder=minhash_dedup_sigs_dir, output_folder=minhash_dedup_buckets_dir, config=minhash_dedup_config)
-        minhash_dedup_clusters = MinhashDedupCluster(input_folder=minhash_dedup_buckets_dir, output_folder=minhash_dedup_clusters_dir, config=minhash_dedup_config)
-        minhash_dedup_filter = MinhashDedupFilter(input_folder=minhash_dedup_clusters_dir)
-
-        train_validation_split_annotator = TrainValidationSplitAnnotator(
-            validation_percentage=validation_percentage,
-            max_validation_documents=max_validation_documents,
-            split_hash_metadata_key="page_id",
+            hf_local_working_dir_str = create_sub_directory(tmp_dir_path, "hf_local_working_dir")
+            hf_writer_kwargs["local_working_dir"] = hf_local_working_dir_str
+        if hf_dataset_revision is not None:
+            hf_writer_kwargs["revision"] = hf_dataset_revision
+        final_output_pipe = HuggingFaceDatasetWriter(
+            dataset=hf_dataset_repo_id,
+            private=hf_dataset_private,
+            output_filename=final_output_filename,
+            compression="zstd",
+            expand_metadata=True,
+            adapter=output_writer_adapter,
+            max_file_size=max_final_output_file_size_in_bytes,
+            **hf_writer_kwargs,
         )
 
-        logging_dir_minhash_sigs_str = create_sub_directory(Path(main_logging_dir_str), "minhash_dedup_sigs")
-        logging_dir_minhash_buckets_str = create_sub_directory(Path(main_logging_dir_str), "minhash_dedup_buckets")
-        logging_dir_minhash_clusters_str = create_sub_directory(Path(main_logging_dir_str), "minhash_dedup_clusters")
-        logging_dir_minhash_filter_str = create_sub_directory(Path(main_logging_dir_str), "minhash_dedup_filter")
-        logging_dir_post_processing_str = create_sub_directory(Path(main_logging_dir_str), "post_processing")
-        logging_dir_merged_stats_processing_str = create_sub_directory(Path(main_logging_dir_str), "merged_stats_processing")
+    reading_intermediate_data_dir = create_sub_directory(tmp_dir_path, "reading_intermediate")
+    reading_stage_output_pipe = JsonlWriter(reading_intermediate_data_dir, output_filename=generic_output_filename, compression="infer", expand_metadata=False, max_file_size=max_file_size_in_bytes)
+    initial_processing_input_pipe = JsonlReader(reading_intermediate_data_dir, glob_pattern="*.jsonl.gz", compression="infer")
 
-        reading_stage = executor_factory.create(
-            pipeline=[reader_pipe, get_progress_logger_function("reading"), page_id_title_filter, url_filter, reader_metadata_whitelist, reading_stage_output_pipe],
-            tasks=number_data_downloading_tasks,
-            workers=number_downloading_workers,
-            logging_dir=logging_reading_dir,
-            job_name="reading",
-        )
-        initial_process_stage = executor_factory.create(
-            pipeline=[initial_processing_input_pipe, remove_family_tree_formatter, remove_lines_with_given_latex_commands_formatter, wikipedia_markdown_formatter, EmptyTextFilter(), min_words_document_filter, exact_intermediate_output_pipe],
-            tasks=number_processing_tasks,
-            workers=number_of_workers,
-            logging_dir=logging_dir_initial_process_str,
-            depends=reading_stage,
-            job_name="initial_process")
-        exact_sigs_stage = executor_factory.create(
-            pipeline=[exact_intermediate_read_pipe, exact_dedup_sig],
-            tasks=number_processing_tasks,
-            workers=number_of_workers,
-            logging_dir=logging_dir_exact_sigs_str,
-            depends=initial_process_stage,
-            job_name="exact_dedup_sigs",
-        )
-        exact_finds_stage = executor_factory.create(
-            pipeline=[exact_dedup_finds],
-            tasks=number_of_workers, # Has to be the same as finder_workers
-            workers=number_of_workers, # Has to be the same as finder_workers
-            logging_dir=logging_dir_exact_finds_str,
-            depends=exact_sigs_stage,
-            job_name="exact_dedup_finds")
-        exact_filter_stage = executor_factory.create(
-            pipeline=[exact_intermediate_read_pipe, exact_dedup_filter, minhash_intermediate_output_pipe],
-            tasks=number_processing_tasks, # This has to match exact_sigs_stage
-            workers=number_of_workers,
-            logging_dir=logging_dir_exact_filter_str,
-            depends=exact_finds_stage,
-            job_name="exact_dedup_filter")
-        minhash_sigs_stage = executor_factory.create(
-            pipeline=[minhash_intermediate_read_pipe, minhash_dedup_sig],
-            tasks=number_processing_tasks,
-            workers=number_of_workers,
-            logging_dir=logging_dir_minhash_sigs_str,
-            depends=exact_filter_stage,
-            job_name="minhash_dedup_sigs")
-        minhash_buckets_stage = executor_factory.create(
-            pipeline=[minhash_dedup_buckets],
-            tasks=minhash_dedup_config.num_buckets,
-            workers=number_of_workers,
-            logging_dir=logging_dir_minhash_buckets_str,
-            depends=minhash_sigs_stage,
-            job_name="minhash_dedup_buckets")
-        minhash_clusters_stage = executor_factory.create(
-            pipeline=[minhash_dedup_clusters],
-            tasks=1,
-            workers=1,
-            logging_dir=logging_dir_minhash_clusters_str,
-            depends=minhash_buckets_stage,
-            job_name="minhash_dedup_clusters")
-        minhash_filter_stage = executor_factory.create(
-            pipeline=[minhash_intermediate_read_pipe, minhash_dedup_filter, word_statistics, minhash_filter_output_pipe],
-            tasks=number_processing_tasks, # This has to match minhash_sigs_stage
-            workers=number_of_workers,
-            logging_dir=logging_dir_minhash_filter_str,
-            depends=minhash_clusters_stage,
-            job_name="minhash_dedup_filter")
-        post_processing_stage = executor_factory.create(
-            pipeline=[minhash_filter_read_pipe, SentenceSplitterAnnotator(wikipedia_language_code_str), TokenPyMUSASAnnotator(wikipedia_language_code_str, tag_mapper=tag_mapper), train_validation_split_annotator, final_output_pipe],
-            tasks=number_processing_tasks, # This has to match minhash_sigs_stage
-            workers=number_of_workers,
-            logging_dir=logging_dir_post_processing_str,
-            depends=minhash_filter_stage,
-            job_name="post_processing")
-        merge_stage = executor_factory.create(
-            pipeline=[
-                StatsMerger(
-                    input_folder=stats_logging_dir_str,
-                    output_folder=merged_stats_logging_dir_str,
-                )
-            ],
-            tasks=1,
-            workers=1,
-            logging_dir=logging_dir_merged_stats_processing_str,
-            depends=post_processing_stage,
-            job_name="merged_stats",
-        )
+    exact_intermediate_data_dir = create_sub_directory(tmp_dir_path, "exact_intermediate")
+    exact_intermediate_output_pipe = JsonlWriter(output_folder=exact_intermediate_data_dir, output_filename=generic_output_filename, compression="infer", expand_metadata=False, max_file_size=max_file_size_in_bytes)
+    exact_intermediate_read_pipe = JsonlReader(exact_intermediate_data_dir, glob_pattern="*.jsonl.gz", compression="infer")
 
-        merge_stage.run()
-        data_trove_logger.info(f"PIPELINE_RUNTIME_SECONDS={time_elapsed(pipeline_start_time):.2f}")
+    exact_dedup_config = ExactDedupConfig(content_getter=lambda x: x.text)
+    exact_dedup_sigs_dir = create_sub_directory(tmp_dir_path, "exact_dedup_sigs")
+    exact_dedup_finds_dir = create_sub_directory(tmp_dir_path, "exact_dedup_finds")
+
+    exact_dedup_sig = ExactDedupSignature(output_folder=exact_dedup_sigs_dir, config=exact_dedup_config, finder_workers=number_of_workers)
+    exact_dedup_finds = ExactFindDedups(exact_dedup_sigs_dir, exact_dedup_finds_dir, config=exact_dedup_config)
+    exact_dedup_filter = ExactDedupFilter(exact_dedup_finds_dir, config=exact_dedup_config)
+
+    logging_reading_dir = create_sub_directory(Path(main_logging_dir_str), "reading")
+    logging_dir_initial_process_str = create_sub_directory(Path(main_logging_dir_str), "initial_process")
+    logging_dir_exact_sigs_str = create_sub_directory(Path(main_logging_dir_str), "exact_dedup_sigs")
+    logging_dir_exact_finds_str = create_sub_directory(Path(main_logging_dir_str), "exact_dedup_finds")
+    logging_dir_exact_filter_str = create_sub_directory(Path(main_logging_dir_str), "exact_dedup_filter")
+
+    minhash_intermediate_data_dir = create_sub_directory(tmp_dir_path, "minhash_intermediate")
+    minhash_intermediate_output_pipe = JsonlWriter(output_folder=minhash_intermediate_data_dir, output_filename=generic_output_filename, compression="infer", expand_metadata=False, max_file_size=max_file_size_in_bytes)
+    minhash_intermediate_read_pipe = JsonlReader(minhash_intermediate_data_dir, glob_pattern="*.jsonl.gz", compression="infer")
+
+    minhash_filter_data_dir = create_sub_directory(tmp_dir_path, "minhash_filter")
+    minhash_filter_read_pipe = JsonlReader(minhash_filter_data_dir, glob_pattern="*.jsonl.gz", compression="infer")
+    minhash_filter_output_pipe = JsonlWriter(output_folder=minhash_filter_data_dir, output_filename=generic_output_filename, compression="infer", expand_metadata=False, max_file_size=max_file_size_in_bytes)
+
+    minhash_dedup_config = MinhashConfig(num_buckets=minhash_number_of_buckets, hashes_per_bucket=minhash_hashes_per_bucket, n_grams=5)
+    minhash_dedup_sigs_dir = create_sub_directory(tmp_dir_path, "minhash_dedup_sigs")
+    minhash_dedup_buckets_dir = create_sub_directory(tmp_dir_path, "minhash_dedup_buckets")
+    minhash_dedup_clusters_dir = create_sub_directory(tmp_dir_path, "minhash_dedup_clusters")
+
+    minhash_dedup_sig = MinhashDedupSignature(output_folder=minhash_dedup_sigs_dir, config=minhash_dedup_config, language=data_trove_language)
+    minhash_dedup_buckets = MinhashDedupBuckets(input_folder=minhash_dedup_sigs_dir, output_folder=minhash_dedup_buckets_dir, config=minhash_dedup_config)
+    minhash_dedup_clusters = MinhashDedupCluster(input_folder=minhash_dedup_buckets_dir, output_folder=minhash_dedup_clusters_dir, config=minhash_dedup_config)
+    minhash_dedup_filter = MinhashDedupFilter(input_folder=minhash_dedup_clusters_dir)
+
+    train_validation_split_annotator = TrainValidationSplitAnnotator(
+        validation_percentage=validation_percentage,
+        max_validation_documents=max_validation_documents,
+        split_hash_metadata_key="page_id",
+    )
+
+    logging_dir_minhash_sigs_str = create_sub_directory(Path(main_logging_dir_str), "minhash_dedup_sigs")
+    logging_dir_minhash_buckets_str = create_sub_directory(Path(main_logging_dir_str), "minhash_dedup_buckets")
+    logging_dir_minhash_clusters_str = create_sub_directory(Path(main_logging_dir_str), "minhash_dedup_clusters")
+    logging_dir_minhash_filter_str = create_sub_directory(Path(main_logging_dir_str), "minhash_dedup_filter")
+    logging_dir_post_processing_str = create_sub_directory(Path(main_logging_dir_str), "post_processing")
+    logging_dir_merged_stats_processing_str = create_sub_directory(Path(main_logging_dir_str), "merged_stats_processing")
+
+    # 11 dependent stages below (reading, initial processing, exact dedup
+    # signature/find/filter, MinHash signature/buckets/cluster/filter,
+    # post-processing, stats merge). If this stage layout changes, keep
+    # wikipedia_processing.utils.estimate_peak_submitted_slurm_jobs in sync --
+    # it mirrors this exact structure to estimate peak simultaneously-
+    # submitted Slurm array tasks for run_all_training_languages.py's
+    # --max-number-of-parallel-tasks.
+    reading_stage = executor_factory.create(
+        pipeline=[reader_pipe, get_progress_logger_function("reading"), page_id_title_filter, url_filter, reader_metadata_whitelist, reading_stage_output_pipe],
+        tasks=number_data_downloading_tasks,
+        workers=number_downloading_workers,
+        logging_dir=logging_reading_dir,
+        job_name="reading",
+        tasks_per_job=tasks_per_job,
+    )
+    initial_process_stage = executor_factory.create(
+        pipeline=[initial_processing_input_pipe, remove_family_tree_formatter, remove_lines_with_given_latex_commands_formatter, wikipedia_markdown_formatter, EmptyTextFilter(), min_words_document_filter, exact_intermediate_output_pipe],
+        tasks=number_processing_tasks,
+        workers=number_of_workers,
+        logging_dir=logging_dir_initial_process_str,
+        depends=reading_stage,
+        job_name="initial_process",
+        tasks_per_job=tasks_per_job)
+    exact_sigs_stage = executor_factory.create(
+        pipeline=[exact_intermediate_read_pipe, exact_dedup_sig],
+        tasks=number_processing_tasks,
+        workers=number_of_workers,
+        logging_dir=logging_dir_exact_sigs_str,
+        depends=initial_process_stage,
+        job_name="exact_dedup_sigs",
+        tasks_per_job=tasks_per_job,
+    )
+    exact_finds_stage = executor_factory.create(
+        pipeline=[exact_dedup_finds],
+        tasks=number_of_workers, # Has to be the same as finder_workers
+        workers=number_of_workers, # Has to be the same as finder_workers
+        logging_dir=logging_dir_exact_finds_str,
+        depends=exact_sigs_stage,
+        job_name="exact_dedup_finds",
+        tasks_per_job=tasks_per_job)
+    exact_filter_stage = executor_factory.create(
+        pipeline=[exact_intermediate_read_pipe, exact_dedup_filter, minhash_intermediate_output_pipe],
+        tasks=number_processing_tasks, # This has to match exact_sigs_stage
+        workers=number_of_workers,
+        logging_dir=logging_dir_exact_filter_str,
+        depends=exact_finds_stage,
+        job_name="exact_dedup_filter",
+        tasks_per_job=tasks_per_job)
+    minhash_sigs_stage = executor_factory.create(
+        pipeline=[minhash_intermediate_read_pipe, minhash_dedup_sig],
+        tasks=number_processing_tasks,
+        workers=number_of_workers,
+        logging_dir=logging_dir_minhash_sigs_str,
+        depends=exact_filter_stage,
+        job_name="minhash_dedup_sigs",
+        tasks_per_job=tasks_per_job)
+    minhash_buckets_stage = executor_factory.create(
+        pipeline=[minhash_dedup_buckets],
+        tasks=minhash_dedup_config.num_buckets,
+        workers=number_of_workers,
+        logging_dir=logging_dir_minhash_buckets_str,
+        depends=minhash_sigs_stage,
+        job_name="minhash_dedup_buckets",
+        tasks_per_job=tasks_per_job)
+    minhash_clusters_stage = executor_factory.create(
+        pipeline=[minhash_dedup_clusters],
+        tasks=1,
+        workers=1,
+        logging_dir=logging_dir_minhash_clusters_str,
+        depends=minhash_buckets_stage,
+        job_name="minhash_dedup_clusters",
+        tasks_per_job=tasks_per_job)
+    minhash_filter_stage = executor_factory.create(
+        pipeline=[minhash_intermediate_read_pipe, minhash_dedup_filter, word_statistics, minhash_filter_output_pipe],
+        tasks=number_processing_tasks, # This has to match minhash_sigs_stage
+        workers=number_of_workers,
+        logging_dir=logging_dir_minhash_filter_str,
+        depends=minhash_clusters_stage,
+        job_name="minhash_dedup_filter",
+        tasks_per_job=tasks_per_job)
+    post_processing_stage = executor_factory.create(
+        pipeline=[minhash_filter_read_pipe, SentenceSplitterAnnotator(wikipedia_language_code_str), TokenPyMUSASAnnotator(wikipedia_language_code_str, tag_mapper=tag_mapper), train_validation_split_annotator, final_output_pipe],
+        tasks=number_processing_tasks, # This has to match minhash_sigs_stage
+        workers=number_of_workers,
+        logging_dir=logging_dir_post_processing_str,
+        depends=minhash_filter_stage,
+        job_name="post_processing",
+        tasks_per_job=tasks_per_job)
+    merge_stage = executor_factory.create(
+        pipeline=[
+            StatsMerger(
+                input_folder=stats_logging_dir_str,
+                output_folder=merged_stats_logging_dir_str,
+            ),
+            get_intermediate_data_cleanup_function(tmp_dir_path),
+        ],
+        tasks=1,
+        workers=1,
+        logging_dir=logging_dir_merged_stats_processing_str,
+        depends=post_processing_stage,
+        job_name="merged_stats",
+        tasks_per_job=tasks_per_job,
+    )
+
+    merge_stage.run()
+    data_trove_logger.info(f"PIPELINE_RUNTIME_SECONDS={time_elapsed(pipeline_start_time):.2f}")
 
 
 if __name__ == "__main__":

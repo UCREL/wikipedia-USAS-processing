@@ -85,6 +85,16 @@ def test_create_local_backend_ignores_job_name(tmp_path: Path) -> None:
     assert not hasattr(executor, "job_name")
 
 
+def test_create_local_backend_ignores_tasks_per_job(tmp_path: Path) -> None:
+    # tasks_per_job is documented as Slurm-only; the local backend should accept
+    # and silently ignore it rather than erroring.
+    factory = PipelineExecutorFactory(backend=ExecutorBackend.local, randomize_start_duration=0, skip_completed=True)
+
+    executor = factory.create(pipeline=[], tasks=4, workers=2, logging_dir=str(tmp_path), tasks_per_job=2)
+
+    assert not hasattr(executor, "tasks_per_job")
+
+
 def _slurm_factory(
     venv_path: Path | None = None,
     condaenv: str | None = None,
@@ -125,6 +135,16 @@ def test_create_slurm_backend_returns_slurm_pipeline_executor(tmp_path: Path) ->
     assert executor._sbatch_args == {}
     assert executor.skip_completed is False
     assert executor.randomize_start_duration == 7
+    assert executor.tasks_per_job == 1
+
+
+def test_create_slurm_backend_passes_tasks_per_job_through(tmp_path: Path) -> None:
+    factory = _slurm_factory()
+
+    executor = factory.create(pipeline=[], tasks=4, workers=2, logging_dir=str(tmp_path), tasks_per_job=2)
+
+    assert isinstance(executor, SlurmPipelineExecutor)
+    assert executor.tasks_per_job == 2
 
 
 def test_create_slurm_backend_defaults_job_name_to_data_processing(tmp_path: Path) -> None:

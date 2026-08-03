@@ -11,13 +11,15 @@ from datatrove.utils.logging import logger as data_trove_logger
 from wikipedia_processing.utils import (
     compute_shard_scaled_tasks_and_workers,
     create_sub_directory,
+    estimate_peak_submitted_slurm_jobs,
+    find_smallest_tasks_per_job_within_peak_budget,
     get_available_cpu_count,
     get_hashes_per_bucket,
     get_progress_logger_function,
     get_usas_language_processing_information,
     get_valid_usas_language_processing_wikipedia_codes,
     parse_json_object,
-    scale_workers_to_budget,
+    scale_counts_to_budget,
     time_elapsed,
     truncate_to_255_bytes,
 )
@@ -277,19 +279,19 @@ def test_compute_shard_scaled_tasks_and_workers_min_tasks_above_max_tasks_raises
 
 
 @pytest.mark.parametrize(
-    ("workers", "budget", "expected"),
+    ("counts", "budget", "expected"),
     [
         # Docstring example: even entries split evenly.
         ([16, 16, 16, 16], 40, [10, 10, 10, 10]),
         # Docstring example: already within budget, returned unchanged.
         ([4, 4, 4], 20, [4, 4, 4]),
-        # Skewed entries shrink proportionally to their "extra" above the floor of 1.
+        # Skewed entries shrink proportionally to their "extra" above the default floor of 1.
         ([16, 8, 1, 1, 1, 1, 1, 1], 15, [6, 3, 1, 1, 1, 1, 1, 1]),
         # Every entry already at the floor of 1: no extra weight to distribute from.
         ([1, 1, 1], 3, [1, 1, 1]),
         # budget exactly equal to the sum: no shrinking needed.
         ([5, 3, 2], 10, [5, 3, 2]),
-        # budget exactly equal to len(workers): everyone clamped to the floor.
+        # budget exactly equal to len(counts): everyone clamped to the default floor of 1.
         ([16, 8, 4], 3, [1, 1, 1]),
     ],
     ids=[
@@ -301,20 +303,105 @@ def test_compute_shard_scaled_tasks_and_workers_min_tasks_above_max_tasks_raises
         "budget-equals-length-floors-everyone",
     ],
 )
-def test_scale_workers_to_budget(workers: list[int], budget: int, expected: list[int]) -> None:
-    result = scale_workers_to_budget(workers, budget)
+def test_scale_counts_to_budget_default_floors(counts: list[int], budget: int, expected: list[int]) -> None:
+    result = scale_counts_to_budget(counts, budget)
     assert result == expected
-    assert all(1 <= scaled <= original for scaled, original in zip(result, workers))
+    assert all(1 <= scaled <= original for scaled, original in zip(result, counts))
 
 
-def test_scale_workers_to_budget_below_length_raises_value_error() -> None:
-    with pytest.raises(ValueError, match="budget must be >= len\\(workers\\)"):
-        scale_workers_to_budget([16, 8, 4], budget=2)
+def test_scale_counts_to_budget_explicit_floors() -> None:
+    result = scale_counts_to_budget([41, 31, 21], budget=45, floors=[11, 11, 11])
+    assert result == [17, 15, 13]
+    assert sum(result) == 45
+    assert all(floor <= scaled <= count for scaled, count, floor in zip(result, [41, 31, 21], [11, 11, 11]))
 
 
-def test_scale_workers_to_budget_non_positive_worker_raises_value_error() -> None:
-    with pytest.raises(ValueError, match="All worker counts must be >= 1"):
-        scale_workers_to_budget([16, 0, 4], budget=10)
+def test_scale_counts_to_budget_explicit_floors_already_within_budget_returned_unchanged() -> None:
+    result = scale_counts_to_budget([20, 20, 20], budget=60, floors=[11, 11, 11])
+    assert result == [20, 20, 20]
+
+
+def test_scale_counts_to_budget_below_floor_sum_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="budget must be >= sum\\(floors\\)"):
+        scale_counts_to_budget([16, 8, 4], budget=2)
+
+
+def test_scale_counts_to_budget_below_floor_sum_with_explicit_floors_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="budget must be >= sum\\(floors\\)"):
+        scale_counts_to_budget([41, 31, 21], budget=30, floors=[11, 11, 11])
+
+
+def test_scale_counts_to_budget_count_below_its_floor_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="Every count must be >= its floor"):
+        scale_counts_to_budget([5, 20], budget=20, floors=[11, 1])
+
+
+def test_scale_counts_to_budget_floors_length_mismatch_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="floors must be the same length as counts"):
+        scale_counts_to_budget([1, 2, 3], budget=10, floors=[1, 1])
+
+
+@pytest.mark.parametrize(
+    ("number_of_shards", "number_of_workers", "tasks_multiplier", "tasks_per_job", "expected"),
+    [
+        # Docstring example: tasks_per_job=1, no grouping.
+        (1000, 16, 13, 1, 1682),
+        # Docstring example: tasks_per_job large enough that every stage collapses to 1 (11 stages).
+        (1000, 16, 13, 208, 11),
+        # Shard count below processing_tasks: downloading_tasks is capped by shards.
+        (5, 4, 2, 1, 67),
+    ],
+)
+def test_estimate_peak_submitted_slurm_jobs(
+    number_of_shards: int, number_of_workers: int, tasks_multiplier: int, tasks_per_job: int, expected: int
+) -> None:
+    assert estimate_peak_submitted_slurm_jobs(number_of_shards, number_of_workers, tasks_multiplier, tasks_per_job) == expected
+
+
+@pytest.mark.parametrize(
+    ("number_of_shards", "number_of_workers", "tasks_multiplier", "tasks_per_job"),
+    [
+        (0, 16, 13, 1),
+        (1000, 0, 13, 1),
+        (1000, 16, 0, 1),
+        (1000, 16, 13, 0),
+    ],
+)
+def test_estimate_peak_submitted_slurm_jobs_non_positive_input_raises_value_error(
+    number_of_shards: int, number_of_workers: int, tasks_multiplier: int, tasks_per_job: int
+) -> None:
+    with pytest.raises(ValueError, match="must all be >= 1"):
+        estimate_peak_submitted_slurm_jobs(number_of_shards, number_of_workers, tasks_multiplier, tasks_per_job)
+
+
+def test_estimate_peak_submitted_slurm_jobs_monotonically_non_increasing_in_tasks_per_job() -> None:
+    peaks = [estimate_peak_submitted_slurm_jobs(1000, 16, 13, tasks_per_job) for tasks_per_job in range(1, 209)]
+    assert all(earlier >= later for earlier, later in zip(peaks, peaks[1:]))
+    assert peaks[-1] == 11
+
+
+@pytest.mark.parametrize(
+    ("number_of_shards", "number_of_workers", "tasks_multiplier", "peak_budget", "expected"),
+    [
+        # Docstring example: budget already covers tasks_per_job=1.
+        (1000, 16, 13, 1700, 1),
+        # Docstring example: a tighter budget requires grouping tasks.
+        (1000, 16, 13, 50, 42),
+        # Budget exactly at the floor: requires the largest possible tasks_per_job.
+        (1000, 16, 13, 11, 208),
+    ],
+)
+def test_find_smallest_tasks_per_job_within_peak_budget(
+    number_of_shards: int, number_of_workers: int, tasks_multiplier: int, peak_budget: int, expected: int
+) -> None:
+    result = find_smallest_tasks_per_job_within_peak_budget(number_of_shards, number_of_workers, tasks_multiplier, peak_budget)
+    assert result == expected
+    assert estimate_peak_submitted_slurm_jobs(number_of_shards, number_of_workers, tasks_multiplier, result) <= peak_budget
+
+
+def test_find_smallest_tasks_per_job_within_peak_budget_below_floor_raises_value_error() -> None:
+    with pytest.raises(ValueError, match="peak_budget must be >= 11"):
+        find_smallest_tasks_per_job_within_peak_budget(1000, 16, 13, peak_budget=10)
 
 
 def test_get_progress_logger_function_yields_documents_unchanged() -> None:
