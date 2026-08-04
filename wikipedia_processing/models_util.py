@@ -124,6 +124,7 @@ def get_language_sentence_splitter(language: Languages) -> Callable[[str], Itera
         full_nlp_pipeline = spacy.load(spacy_model_name.value)
         pipes_to_exclude = get_pipes_to_exclude(full_nlp_pipeline)
         nlp = spacy.load(spacy_model_name.value, exclude=pipes_to_exclude)
+        nlp.max_length = 3000000 # required as some files can be very large. This is the length in characters.
         return spacy_sentence_splitter(nlp)
 
     match language:
