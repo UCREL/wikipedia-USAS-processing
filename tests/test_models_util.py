@@ -11,6 +11,7 @@ from wikipedia_processing.models_install import (
     SpacyModel,
 )
 from wikipedia_processing.models_util import (
+    MAX_SPACY_TEXT_LENGTH,
     get_language_sentence_splitter,
     get_language_tagger,
     spacy_sentence_splitter,
@@ -49,9 +50,11 @@ def test_get_language_tagger_dispatches_to_expected_spacy_model(
 
     mock_pip_install.assert_any_call(SPACY_MODEL_2_URL[expected_spacy_model], expected_spacy_model.value)
     mock_pip_install.assert_any_call(PYMUSAS_SPACY_MODEL_2_URL[pymusas_model_name], pymusas_model_name)
-    # "ner" is excluded for every language, since only the PyMUSAS tagger is added.
-    mock_load.assert_any_call(expected_spacy_model.value, exclude=["ner"])
+    # "ner" and "parser" are excluded for every language: only the PyMUSAS
+    # tagger is added, and PyMUSAS only requires token.pos/token.lemma.
+    mock_load.assert_any_call(expected_spacy_model.value, exclude=["ner", "parser"])
     mock_load.assert_any_call(pymusas_model_name)
+    assert fake_nlp.max_length == MAX_SPACY_TEXT_LENGTH
     fake_nlp.add_pipe.assert_called_once_with("pymusas_rule_based_tagger", source=fake_pymusas_pipe)
     assert result is fake_nlp
 
