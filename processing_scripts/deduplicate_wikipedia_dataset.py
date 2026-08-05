@@ -1,5 +1,6 @@
 """Deduplicate the Multilingual USAS Wikipedia dataset by `id`, per language."""
 
+import math
 import tempfile
 from collections import defaultdict
 from enum import Enum
@@ -153,49 +154,86 @@ def apply_dedup_plan(train: Dataset, validation: Dataset, plan: LanguageDedupPla
     return new_train, new_validation
 
 
-def write_language_parquet(base_dir: Path, wikipedia_language_code: str, split: str, dataset: Dataset) -> Path:
-    """Write one language/split's dataset to a single zstd-compressed Parquet file.
+def compute_number_of_shards(dataset: Dataset, max_output_file_size_mb: int) -> int:
+    """Estimate how many Parquet shards a dataset needs to stay under a target size.
+
+    Uses the dataset's in-memory Arrow byte size as an approximation for its
+    written (zstd-compressed) Parquet size. Since compression typically
+    shrinks the on-disk size well below the in-memory size, this tends to
+    over-shard slightly rather than produce oversized files.
 
     Args:
-        base_dir: Directory to write under, mirroring the dataset's
-            `data/<language>/<split>/` layout.
+        dataset: The dataset to size.
+        max_output_file_size_mb: Target maximum shard size, in MB.
+
+    Returns:
+        The number of shards needed, at least 1.
+
+    Examples:
+        >>> from datasets import Dataset
+        >>> compute_number_of_shards(Dataset.from_dict({"x": [1, 2, 3]}), max_output_file_size_mb=200)
+        1
+    """
+    if len(dataset) == 0:
+        return 1
+    # from MB to bytes
+    max_output_file_size_bytes = max_output_file_size_mb * 1024 * 1024
+    return max(1, math.ceil(dataset.data.nbytes / max_output_file_size_bytes))
+
+
+def write_language_parquet(base_dir: Path, wikipedia_language_code: str, split: str, dataset: Dataset, max_output_file_size_mb: int) -> list[Path]:
+    """Write one language/split's dataset to one or more zstd-compressed Parquet shards.
+
+    Splits `dataset` into contiguous shards, each targeting at most
+    `max_output_file_size_mb` (see `compute_number_of_shards`), and writes
+    them under the dataset's `data/<language>/<split>/` layout.
+
+    Args:
+        base_dir: Directory to write under.
         wikipedia_language_code: Wikipedia language code, e.g. `"en"`.
         split: Either `"train"` or `"validation"`.
         dataset: The dataset to write.
+        max_output_file_size_mb: Target maximum shard size, in MB.
 
     Returns:
-        The path of the written Parquet file.
+        The paths of the written Parquet shard files.
     """
     split_dir = base_dir / "data" / wikipedia_language_code / split
     split_dir.mkdir(parents=True, exist_ok=True)
-    output_path = split_dir / "000_00000.parquet"
-    dataset.to_parquet(str(output_path), compression="zstd")
-    return output_path
+    number_of_shards = compute_number_of_shards(dataset, max_output_file_size_mb)
+    output_paths = []
+    for shard_index in range(number_of_shards):
+        shard = dataset.shard(num_shards=number_of_shards, index=shard_index, contiguous=True)
+        output_path = split_dir / f"000_{shard_index:05d}.parquet"
+        shard.to_parquet(str(output_path), compression="zstd")
+        output_paths.append(output_path)
+    return output_paths
 
 
 def push_language_to_hub(
     api: HfApi,
     hf_dataset_repo_id: str,
     wikipedia_language_code: str,
-    train_path: Path,
-    validation_path: Path,
+    train_paths: list[Path],
+    validation_paths: list[Path],
     revision: str | None,
 ) -> None:
     """Replace a language's `train`/`validation` Parquet shards on the Hub in one commit.
 
     Deletes every existing file under `data/<wikipedia_language_code>/` in
-    the Hub dataset repo and adds the two given (already-deduplicated,
-    single-shard) Parquet files in their place, so no stale duplicate
-    shards are left behind.
+    the Hub dataset repo and adds the given (already-deduplicated) Parquet
+    shard files in their place, so no stale duplicate shards are left
+    behind.
 
     Args:
         api: An authenticated `HfApi` client.
         hf_dataset_repo_id: HuggingFace Hub dataset repository
             (`namespace/name`) to write to.
         wikipedia_language_code: Wikipedia language code, e.g. `"en"`.
-        train_path: Local path to the deduplicated `train` Parquet file.
-        validation_path: Local path to the deduplicated `validation`
-            Parquet file.
+        train_paths: Local paths to the deduplicated `train` Parquet
+            shards.
+        validation_paths: Local paths to the deduplicated `validation`
+            Parquet shards.
         revision: Branch (or other revision) of the Hub dataset repo to
             write to. `None` uses the repo's default branch.
     """
@@ -205,8 +243,10 @@ def push_language_to_hub(
         if path.startswith(f"data/{wikipedia_language_code}/")
     ]
     operations: list[CommitOperationAdd | CommitOperationDelete] = [CommitOperationDelete(path_in_repo=path) for path in existing_files]
-    operations.append(CommitOperationAdd(path_in_repo=f"data/{wikipedia_language_code}/train/000_00000.parquet", path_or_fileobj=str(train_path)))
-    operations.append(CommitOperationAdd(path_in_repo=f"data/{wikipedia_language_code}/validation/000_00000.parquet", path_or_fileobj=str(validation_path)))
+    for path in train_paths:
+        operations.append(CommitOperationAdd(path_in_repo=f"data/{wikipedia_language_code}/train/{path.name}", path_or_fileobj=str(path)))
+    for path in validation_paths:
+        operations.append(CommitOperationAdd(path_in_repo=f"data/{wikipedia_language_code}/validation/{path.name}", path_or_fileobj=str(path)))
     api.create_commit(
         repo_id=hf_dataset_repo_id,
         repo_type="dataset",
@@ -222,6 +262,7 @@ def main(
     hf_dataset_revision: Annotated[str | None, typer.Option("--hf-dataset-revision", help="Branch (or other revision) of the Hub dataset repo to read/write. Defaults to the repo's default branch.")] = None,
     output_dir: Annotated[Path | None, typer.Option("--output-dir", help="Local directory to write the deduplicated Parquet output to, in `output_dir/data/<language>/{train,validation}/` subfolders. Omit to skip writing local output.")] = None,
     push: Annotated[bool, typer.Option("--push/--no-push", help="Whether to commit the deduplicated data back to --hf-dataset-repo-id, replacing each processed language's existing train/validation Parquet shards. Defaults to False, a dry run that only reports what would change.")] = False,
+    max_output_file_size: Annotated[int, typer.Option("-e", "--max-output-file-size", help="Target maximum size in MB per output Parquet shard; larger splits are written as multiple shard files instead of one.")] = 400,
 ) -> None:
     """Deduplicate the Multilingual USAS Wikipedia dataset by `id`, per language.
 
@@ -232,6 +273,19 @@ def main(
     `validation`; duplicates confined to a single split keep the surviving
     row in that same split. With neither --output-dir nor --push, this only
     prints a report of what would change.
+
+    Args:
+        languages: Language(s) to process. Defaults to every config in
+            hf_dataset_repo_id.
+        hf_dataset_repo_id: HuggingFace Hub dataset repository to read from
+            (and, with push, write back to).
+        hf_dataset_revision: Branch (or other revision) to read/write.
+        output_dir: Local directory to also write deduplicated Parquet
+            output to.
+        push: Whether to commit the deduplicated data back to the Hub
+            dataset repo.
+        max_output_file_size: Target maximum size in MB per output Parquet
+            shard.
 
     Examples:
         Report duplicate counts for every language without writing anything:
@@ -277,12 +331,12 @@ def main(
             if output_dir is None and not push:
                 continue
 
-            train_path = write_language_parquet(staging_dir, wikipedia_language_code, "train", new_train)
-            validation_path = write_language_parquet(staging_dir, wikipedia_language_code, "validation", new_validation)
+            train_paths = write_language_parquet(staging_dir, wikipedia_language_code, "train", new_train, max_output_file_size)
+            validation_paths = write_language_parquet(staging_dir, wikipedia_language_code, "validation", new_validation, max_output_file_size)
 
             if push and api is not None:
                 rprint(f"Pushing deduplicated {wikipedia_language_code!r} data to {hf_dataset_repo_id!r}")
-                push_language_to_hub(api, hf_dataset_repo_id, wikipedia_language_code, train_path, validation_path, hf_dataset_revision)
+                push_language_to_hub(api, hf_dataset_repo_id, wikipedia_language_code, train_paths, validation_paths, hf_dataset_revision)
 
     rprint(summary_table)
 
