@@ -1,5 +1,6 @@
 """Deduplicate the Multilingual USAS Wikipedia dataset by `id`, per language."""
 
+import hashlib
 import math
 import tempfile
 from collections import defaultdict
@@ -154,6 +155,75 @@ def apply_dedup_plan(train: Dataset, validation: Dataset, plan: LanguageDedupPla
     return new_train, new_validation
 
 
+def compute_split_hash(value: object) -> int:
+    """Compute the same deterministic hash `TrainValidationSplitAnnotator` uses for split assignment.
+
+    See `wikipedia_processing.pipelines.train_validation_split.TrainValidationSplitAnnotator._is_validation_candidate`,
+    which hashes a document's `split_hash_metadata_key` metadata value
+    (e.g. `page_id`) the same way. Re-deriving it here lets a validation
+    split be trimmed deterministically after the fact, without needing to
+    know the original per-rank processing order.
+
+    Args:
+        value: The metadata value to hash, e.g. a `page_id`.
+
+    Returns:
+        The value's MD5 digest, as an integer.
+
+    Examples:
+        >>> compute_split_hash(1234) == compute_split_hash(1234)
+        True
+    """
+    return int(hashlib.md5(str(value).encode("utf-8")).hexdigest(), 16)
+
+
+def compute_validation_overflow_plan(validation: Dataset, max_validation_documents: int, split_hash_metadata_key: str = "page_id") -> tuple[list[int], list[int]]:
+    """Plan how to cap a validation split at `max_validation_documents` rows.
+
+    `TrainValidationSplitAnnotator` (see `wikipedia_processing.pipelines
+    .train_validation_split`) is supposed to cap the whole validation split
+    at `max_validation_documents` documents, but divides that cap evenly
+    across DataTrove ranks with a `max(1, ...)` floor -- so whenever a
+    language's rank/task count exceeds `max_validation_documents`, every
+    rank gets a local cap of at least 1, and the real total ends up close
+    to the rank count instead of `max_validation_documents`. This plans a
+    post-hoc fix: if `validation` already has more than
+    `max_validation_documents` rows, only the rows with the smallest
+    `compute_split_hash` value (over `split_hash_metadata_key`) are kept --
+    the same deterministic ordering the annotator itself uses -- and the
+    rest are moved back to `train`.
+
+    Args:
+        validation: The (already-deduplicated) `validation` split to cap.
+        max_validation_documents: The intended cap on the number of rows in
+            `validation`.
+        split_hash_metadata_key: The column hashed to break ties
+            deterministically, matching `TrainValidationSplitAnnotator`'s
+            `split_hash_metadata_key`.
+
+    Returns:
+        A `(keep_indexes, move_to_train_indexes)` tuple of indexes into
+        `validation`. `move_to_train_indexes` is empty if `validation` is
+        already at or under `max_validation_documents` rows.
+
+    Examples:
+        >>> from datasets import Dataset
+        >>> validation = Dataset.from_dict({"page_id": [1, 2, 3]})
+        >>> keep, move = compute_validation_overflow_plan(validation, max_validation_documents=2)
+        >>> len(keep), len(move)
+        (2, 1)
+        >>> sorted(keep + move)
+        [0, 1, 2]
+    """
+    if len(validation) <= max_validation_documents:
+        return list(range(len(validation))), []
+
+    ranked_indexes = sorted(range(len(validation)), key=lambda index: compute_split_hash(validation[split_hash_metadata_key][index]))
+    keep_indexes = sorted(ranked_indexes[:max_validation_documents])
+    move_to_train_indexes = sorted(ranked_indexes[max_validation_documents:])
+    return keep_indexes, move_to_train_indexes
+
+
 def compute_number_of_shards(dataset: Dataset, max_output_file_size_mb: int) -> int:
     """Estimate how many Parquet shards a dataset needs to stay under a target size.
 
@@ -263,6 +333,7 @@ def main(
     output_dir: Annotated[Path | None, typer.Option("--output-dir", help="Local directory to write the deduplicated Parquet output to, in `output_dir/data/<language>/{train,validation}/` subfolders. Omit to skip writing local output.")] = None,
     push: Annotated[bool, typer.Option("--push/--no-push", help="Whether to commit the deduplicated data back to --hf-dataset-repo-id, replacing each processed language's existing train/validation Parquet shards. Defaults to False, a dry run that only reports what would change.")] = False,
     max_output_file_size: Annotated[int, typer.Option("-e", "--max-output-file-size", help="Target maximum size in MB per output Parquet shard; larger splits are written as multiple shard files instead of one.")] = 400,
+    max_validation_documents: Annotated[int, typer.Option("-n", "--max-validation-documents", help="Cap each language's post-dedup validation split at this many rows, moving any excess back to train (deterministically, via the same page_id hash TrainValidationSplitAnnotator uses). Fixes the known per-rank validation cap bug in train_validation_split.py, where a language whose task/rank count exceeds this value ends up with closer to that rank count of validation rows instead of this cap, without needing to re-run the whole pipeline. Should match the --max-validation-documents value the data was originally built with.")] = 20,
 ) -> None:
     """Deduplicate the Multilingual USAS Wikipedia dataset by `id`, per language.
 
@@ -273,19 +344,6 @@ def main(
     `validation`; duplicates confined to a single split keep the surviving
     row in that same split. With neither --output-dir nor --push, this only
     prints a report of what would change.
-
-    Args:
-        languages: Language(s) to process. Defaults to every config in
-            hf_dataset_repo_id.
-        hf_dataset_repo_id: HuggingFace Hub dataset repository to read from
-            (and, with push, write back to).
-        hf_dataset_revision: Branch (or other revision) to read/write.
-        output_dir: Local directory to also write deduplicated Parquet
-            output to.
-        push: Whether to commit the deduplicated data back to the Hub
-            dataset repo.
-        max_output_file_size: Target maximum size in MB per output Parquet
-            shard.
 
     Examples:
         Report duplicate counts for every language without writing anything:
@@ -306,7 +364,7 @@ def main(
 
     api = HfApi() if push else None
     summary_table = Table(title="Deduplication report")
-    for column in ("language", "train (before)", "validation (before)", "cross-split ids", "removed from train", "removed from validation", "train (after)", "validation (after)"):
+    for column in ("language", "train (before)", "validation (before)", "cross-split ids", "removed from train", "removed from validation", "validation overflow -> train", "train (after)", "validation (after)"):
         summary_table.add_column(column)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -317,6 +375,13 @@ def main(
             plan = compute_language_dedup_plan(train, validation)
 
             new_train, new_validation = apply_dedup_plan(train, validation, plan)
+
+            validation_keep_indexes, validation_overflow_indexes = compute_validation_overflow_plan(new_validation, max_validation_documents)
+            if validation_overflow_indexes:
+                overflow_to_train = new_validation.select(validation_overflow_indexes)
+                new_validation = new_validation.select(validation_keep_indexes)
+                new_train = concatenate_datasets([new_train, overflow_to_train])
+
             summary_table.add_row(
                 wikipedia_language_code,
                 str(len(train)),
@@ -324,6 +389,7 @@ def main(
                 str(plan["cross_split_ids"]),
                 str(plan["removed_from_train"]),
                 str(plan["removed_from_validation"]),
+                str(len(validation_overflow_indexes)),
                 str(len(new_train)),
                 str(len(new_validation)),
             )
