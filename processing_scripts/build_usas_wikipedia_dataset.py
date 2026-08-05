@@ -473,7 +473,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
         job_name="minhash_dedup_filter",
         tasks_per_job=tasks_per_job)
     post_processing_stage = executor_factory.create(
-        pipeline=[minhash_filter_read_pipe, SentenceSplitterAnnotator(wikipedia_language_code_str), TokenPyMUSASAnnotator(wikipedia_language_code_str, tag_mapper=tag_mapper), train_validation_split_annotator, final_output_pipe],
+        pipeline=[minhash_filter_read_pipe, SentenceSplitterAnnotator(wikipedia_language_code_str), TokenPyMUSASAnnotator(wikipedia_language_code_str, tag_mapper=tag_mapper), get_progress_logger_function("tokenization", log_every=100), train_validation_split_annotator, final_output_pipe],
         tasks=number_processing_tasks, # This has to match minhash_sigs_stage
         workers=number_of_workers,
         logging_dir=logging_dir_post_processing_str,
