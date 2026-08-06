@@ -199,6 +199,33 @@ def statistics_row(language: str, split: str, statistics: DatasetStatistics) -> 
     }
 
 
+def format_row_value(value: str | int | float) -> str:
+    """Format a single row value for table display, adding `,` thousands separators to numbers.
+
+    Args:
+        value: The value to format, as produced by `statistics_row`.
+
+    Returns:
+        `value` unchanged if it is a string, otherwise formatted with `,`
+        thousands separators (and, for floats, two decimal places).
+
+    Examples:
+        >>> format_row_value("da")
+        'da'
+        >>> format_row_value(1369932)
+        '1,369,932'
+        >>> format_row_value(7739.7288)
+        '7,739.73'
+    """
+    match value:
+        case int():
+            return f"{value:,}"
+        case float():
+            return f"{value:,.2f}"
+        case _:
+            return str(value)
+
+
 def main(
     languages: Annotated[list[WikipediaLanguageCode] | None, typer.Option("-l", "--language", help="Language config(s) to compute statistics for. Repeatable. Defaults to every config found in --hf-dataset-repo-id.")] = None,
     hf_dataset_repo_id: Annotated[str, typer.Option("--hf-dataset-repo-id", help="HuggingFace Hub dataset repository (`namespace/name`) to read from.")] = "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia",
@@ -257,7 +284,7 @@ def main(
     for column in COLUMNS:
         table.add_column(column)
     for row in rows:
-        table.add_row(*(str(row[column]) for column in COLUMNS))
+        table.add_row(*(format_row_value(row[column]) for column in COLUMNS))
     rprint(table)
 
     if output_csv is not None:
