@@ -26,7 +26,7 @@ COLUMN_LABELS = {
     "average_number_of_sentences": "Avg. Sentences / Article",
     "number_of_tokens": "Tokens",
     "number_of_labelled_tokens": "Labelled Tokens",
-    "average_tags_per_labelled_token": "Avg. Tags / Labelled Token",
+    "multi_tag_membership_percentage": "Multi Tag Membership (%)",
     "number_of_unique_tags": "Unique Tags",
     "number_of_mwes": "MWEs",
 }
@@ -45,9 +45,9 @@ class DatasetStatistics:
         number_of_tokens: Total number of tokens across all articles.
         number_of_labelled_tokens: Number of tokens with at least one USAS tag
             (a token's `tags` entry, e.g. `tags[0][0]`, is non-empty).
-        number_of_tag_assignments: Total number of USAS tags assigned across
-            all tokens (a labelled token can have more than one tag, e.g.
-            `tags[0][0]` can be `["A3", "M6"]`).
+        number_of_multi_tag_tokens: Number of "multi tag membership" tokens,
+            i.e. tokens whose `tags` entry contains more than one USAS tag
+            (e.g. `tags[0][0]` is `["A3", "M6"]`).
         unique_tags: The set of distinct USAS tag strings seen across all articles.
         number_of_mwes: Total number of Multi-Word Expressions (MWEs) across all articles.
     """
@@ -56,7 +56,7 @@ class DatasetStatistics:
     number_of_sentences: int = 0
     number_of_tokens: int = 0
     number_of_labelled_tokens: int = 0
-    number_of_tag_assignments: int = 0
+    number_of_multi_tag_tokens: int = 0
     unique_tags: set[str] = dataclasses.field(default_factory=set)
     number_of_mwes: int = 0
 
@@ -89,18 +89,23 @@ class DatasetStatistics:
         return self.number_of_sentences / self.number_of_articles
 
     @property
-    def average_tags_per_labelled_token(self) -> float:
-        """Average number of USAS tags per labelled token, ignoring unlabelled tokens.
+    def multi_tag_membership_percentage(self) -> float:
+        """Percentage of labelled tokens that are "multi tag membership" tokens.
+
+        A multi tag membership token is a labelled token whose `tags` entry
+        contains more than one USAS tag (e.g. `tags[0][0]` is `["A3", "M6"]`).
+        Unlabelled tokens (an empty `tags` entry) are excluded from the
+        percentage's denominator, since they can never be multi-tag.
 
         Examples:
-            >>> DatasetStatistics(number_of_labelled_tokens=2, number_of_tag_assignments=3).average_tags_per_labelled_token
-            1.5
-            >>> DatasetStatistics().average_tags_per_labelled_token
+            >>> DatasetStatistics(number_of_labelled_tokens=4, number_of_multi_tag_tokens=1).multi_tag_membership_percentage
+            25.0
+            >>> DatasetStatistics().multi_tag_membership_percentage
             0.0
         """
         if self.number_of_labelled_tokens == 0:
             return 0.0
-        return self.number_of_tag_assignments / self.number_of_labelled_tokens
+        return self.number_of_multi_tag_tokens / self.number_of_labelled_tokens * 100
 
     @property
     def number_of_unique_tags(self) -> int:
@@ -130,7 +135,7 @@ class DatasetStatistics:
             number_of_sentences=self.number_of_sentences + other.number_of_sentences,
             number_of_tokens=self.number_of_tokens + other.number_of_tokens,
             number_of_labelled_tokens=self.number_of_labelled_tokens + other.number_of_labelled_tokens,
-            number_of_tag_assignments=self.number_of_tag_assignments + other.number_of_tag_assignments,
+            number_of_multi_tag_tokens=self.number_of_multi_tag_tokens + other.number_of_multi_tag_tokens,
             unique_tags=self.unique_tags | other.unique_tags,
             number_of_mwes=self.number_of_mwes + other.number_of_mwes,
         )
@@ -165,8 +170,8 @@ def compute_article_statistics(
         >>> stats = compute_article_statistics(tokens, tags, mwes)
         >>> stats.number_of_articles, stats.number_of_sentences, stats.number_of_tokens
         (1, 1, 3)
-        >>> stats.number_of_labelled_tokens, stats.number_of_tag_assignments
-        (2, 3)
+        >>> stats.number_of_labelled_tokens, stats.number_of_multi_tag_tokens
+        (2, 1)
         >>> sorted(stats.unique_tags)
         ['A3', 'M6', 'Z2']
         >>> stats.number_of_mwes
@@ -176,13 +181,14 @@ def compute_article_statistics(
     number_of_tokens = sum(len(sentence_tokens) for sentence_tokens in tokens)
 
     number_of_labelled_tokens = 0
-    number_of_tag_assignments = 0
+    number_of_multi_tag_tokens = 0
     unique_tags: set[str] = set()
     for sentence_tags in tags:
         for token_tags in sentence_tags:
             if token_tags:
                 number_of_labelled_tokens += 1
-                number_of_tag_assignments += len(token_tags)
+                if len(token_tags) > 1:
+                    number_of_multi_tag_tokens += 1
             unique_tags.update(token_tags)
 
     number_of_mwes = 0
@@ -197,7 +203,7 @@ def compute_article_statistics(
         number_of_sentences=number_of_sentences,
         number_of_tokens=number_of_tokens,
         number_of_labelled_tokens=number_of_labelled_tokens,
-        number_of_tag_assignments=number_of_tag_assignments,
+        number_of_multi_tag_tokens=number_of_multi_tag_tokens,
         unique_tags=unique_tags,
         number_of_mwes=number_of_mwes,
     )
@@ -241,7 +247,7 @@ def statistics_row(language: str, split: str, statistics: DatasetStatistics) -> 
         "average_number_of_sentences": round(statistics.average_number_of_sentences, 2),
         "number_of_tokens": statistics.number_of_tokens,
         "number_of_labelled_tokens": statistics.number_of_labelled_tokens,
-        "average_tags_per_labelled_token": round(statistics.average_tags_per_labelled_token, 2),
+        "multi_tag_membership_percentage": round(statistics.multi_tag_membership_percentage, 2),
         "number_of_unique_tags": statistics.number_of_unique_tags,
         "number_of_mwes": statistics.number_of_mwes,
     }
@@ -353,8 +359,9 @@ def main(
     `--language`), loads the `train` and `validation` splits and reports,
     for each split: the number of articles, average article size in tokens,
     average number of sentences per article, number of tokens, number of
-    labelled tokens (tokens with at least one USAS tag), average number of
-    USAS tags per labelled token, number of unique USAS tags, and number of
+    labelled tokens (tokens with at least one USAS tag), the percentage of
+    labelled tokens that are "multi tag membership" tokens (tokens with more
+    than one USAS tag), number of unique USAS tags, and number of
     Multi-Word Expressions (MWEs). A final `"Total"` language aggregates
     every language together, broken down into `train`, `validation`, and the
     overall total.
