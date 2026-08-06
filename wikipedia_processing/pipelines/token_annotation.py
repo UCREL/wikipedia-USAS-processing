@@ -179,21 +179,18 @@ class TokenPyMUSASAnnotator(PipelineStep):
                         all_pymusas_mwe_indexes: list[list[tuple[int, int]]] = []
                         for token in nlp(sentence):
                             tokens.append(token.text)
-                            pymusas_tags = token._.pymusas_tags
+                            pymusas_tags: list[str] = token._.pymusas_tags
                             # All whitespace is tagged as "Z99"
                             if token.is_space:
                                 pymusas_tags = ["Z99"]
                             all_pymusas_mwe_indexes.append(token._.pymusas_mwe_indexes)
 
-                            most_likely_pymusas_tag: str = ""
-                            if pymusas_tags and len(pymusas_tags) > 0:
-                                most_likely_pymusas_tag = pymusas_tags[0]
-                            else:
+                            if not pymusas_tags or len(pymusas_tags) == 0:
                                 tags.append([])
                                 other_tags.append([])
                                 continue
 
-                            valid_pymusas_tags = keep_valid_usas_tags(most_likely_pymusas_tag, self.valid_usas_tags)
+                            valid_pymusas_tags = keep_valid_usas_tags(" ".join(pymusas_tags), self.valid_usas_tags)
                             valid_most_likely_pymusas_tags: list[str] = []
                             other_valid_pymusas_tags: list[str] = []
                             if valid_pymusas_tags and len(valid_pymusas_tags) > 0:
