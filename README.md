@@ -251,7 +251,6 @@ python processing_scripts/run_all_training_languages.py ./log_data --executor sl
 
 uv run processing_scripts/run_all_training_languages.py ./log_data --executor slurm --slurm-partition cpu-6h --slurm-time 4:00:00 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --slurm-mem-per-cpu-gb 2 --slurm-venv-path /mnt/nfs/homes/mooreap1/wikipedia-USAS-processing/venv/bin/python --slurm-cpus-per-task 2 --dry-run --slurm-sbatch-args "'{\"nice\": 100}'"
 
-python processing_scripts/run_all_training_languages.py ./log_data --executor slurm --slurm-partition cpu-6h --slurm-time 4:00:00 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --slurm-mem-per-cpu-gb 2 --slurm-venv-path /mnt/nfs/homes/mooreap1/wikipedia-USAS-processing/venv/bin/python --slurm-cpus-per-task 2 --languages-file ./usas_wikipedia_processing.yaml --slurm-sbatch-args "'{\"nice\": 100}'"
 
 # Real run, uploading every language to the same shared Hub repo:
 uv run processing_scripts/run_all_training_languages.py ./log_data \
@@ -304,6 +303,63 @@ uv run processing_scripts/run_all_training_languages.py ./log_data --dry-run \
 
 Only meaningful with `--executor slurm`; it has no effect with `--executor local`.
 
+
+## Deduplicating an existing dataset
+
+[processing_scripts/deduplicate_wikipedia_dataset.py](processing_scripts/deduplicate_wikipedia_dataset.py) is a post-hoc fix-up script for a dataset already built and uploaded by `build_usas_wikipedia_dataset.py` (e.g. `ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia`) — it does not re-run any of the filtering/tagging pipeline above, it only reads and rewrites each language's already-processed `train`/`validation` Parquet output. It fixes two issues that can occur, especially after re-running the pipeline for a language (e.g. to add more articles) or on a highly-parallel Slurm run:
+
+* **Duplicate `id`s.** For each language, every row of `train` and `validation` (combined) is grouped by `id`. Where an `id` occurs more than once, only the row with the highest `version` is kept and the rest are dropped. If the duplicate copies span both `train` and `validation`, the surviving row always ends up in `validation` (moved out of `train` if that's where the highest-version copy originally was); duplicates confined to a single split just keep the surviving row in that same split.
+* **Validation split overflow.** `TrainValidationSplitAnnotator` (see [Train/validation split](#trainvalidation-split) above) is meant to cap the whole validation split at `--max-validation-documents`, but divides that cap evenly across DataTrove ranks with a `max(1, ...)` floor — so whenever a language's rank/task count exceeds `--max-validation-documents`, every rank keeps at least 1 validation document regardless, and the real total ends up close to the rank count instead of the intended cap (English hit this after a 27-task Slurm run capped at 20: it ended up with 27 validation documents, not 20). This script re-caps the post-dedup validation split at `--max-validation-documents`/`-n` (default 20), moving any excess back into `train` deterministically (same `page_id` hash the annotator itself uses), without needing to re-run the whole pipeline.
+
+By default the script only **reports** what it would change — pass `--output-dir` to also write the deduplicated Parquet locally, and/or `--push` to commit the result back to the Hub repository (this replaces each processed language's existing `train`/`validation` Parquet shards in one commit per language, so no stale duplicate shards are left behind).
+
+``` bash
+# Report duplicate/overflow counts for every language without writing anything:
+uv run processing_scripts/deduplicate_wikipedia_dataset.py
+
+# Write deduplicated Parquet for Danish only to a local directory, without pushing:
+uv run processing_scripts/deduplicate_wikipedia_dataset.py -l da --output-dir ./local_dedup
+
+# Deduplicate every language and push the result back to the Hub:
+uv run processing_scripts/deduplicate_wikipedia_dataset.py --push
+```
+
+Some options worth knowing about (run `--help` for the full list):
+* `-l`/`--language` - restrict processing to specific language(s) (repeatable); defaults to every config found in `--hf-dataset-repo-id`.
+* `-n`/`--max-validation-documents` - the validation split cap to enforce (default 20); should match the value the data was originally built with.
+* `-e`/`--max-output-file-size` - target maximum size in GB per output Parquet shard, pre-compression (default 1.0; the actual file size will be a lot smaller due to compression); larger splits are written as multiple shard files instead of one.
+
+## Commands used to create the original `ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia` dataset
+
+These commands were used to create the original [ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia](https://huggingface.co/datasets/ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia) datasets that was used in the journal paper;
+
+``` bash
+python processing_scripts/run_all_training_languages.py ./log_data --executor slurm --slurm-partition cpu-48h --slurm-time 30:00:00 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --slurm-mem-per-cpu-gb 4 --slurm-venv-path /mnt/nfs/homes/mooreap1/wikipedia-USAS-processing/venv/bin/python --slurm-cpus-per-task 2 --max-workers-per-language 100 --max-tasks-per-language 30 --min-tasks-per-language 1 --languages-file ./usas_wikipedia_processing.yaml --slurm-sbatch-args "{\"nice\": 100}" --max-number-of-parallel-tasks 100 --shard-tasks-multiplier 3 --randomize-start-duration 65 --overwrite --min-hash-threshold 0.85
+uv run processing_scripts/deduplicate_wikipedia_dataset.py -e 0.4 --push
+```
+
+The first command used `python` rather than `uv` as we ran it on our SLURM cluster, in essence most of the time as we had a hard limit on the number of tasks that a user could submit to SLURM in one go (inclduing tasks that are scheduled but not running), we ended up running this command multiple times but processing different languages using `--languages-file ./usas_wikipedia_processing.yaml` file to state which languages ran via setting `training` to `False` for languages that we did not want to process data for. This command used 2 CPUs with 8GB of RAM in total per task which is more than enough for this processing setup.
+
+<details>
+
+<summary> Output after running the deduplicate command </summary>
+
+``` bash
+┏━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┓
+┃ language ┃ train (before) ┃ validation (before) ┃ cross-split ids ┃ removed from train ┃ removed from validation ┃ validation overflow -> train ┃ train (after) ┃ validation (after) ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━┩
+│ da       │ 177            │ 10                  │ 0               │ 0                  │ 0                       │ 0                            │ 177           │ 10                 │
+│ nl       │ 368            │ 10                  │ 0               │ 0                  │ 0                       │ 0                            │ 368           │ 10                 │
+│ fi       │ 856            │ 10                  │ 0               │ 1                  │ 0                       │ 0                            │ 855           │ 10                 │
+│ it       │ 1146           │ 16                  │ 0               │ 1                  │ 0                       │ 0                            │ 1145          │ 16                 │
+│ pt       │ 3457           │ 12                  │ 0               │ 1                  │ 0                       │ 0                            │ 3456          │ 12                 │
+│ es       │ 4582           │ 8                   │ 0               │ 9                  │ 0                       │ 0                            │ 4573          │ 8                  │
+│ zh       │ 2795           │ 20                  │ 0               │ 8                  │ 0                       │ 0                            │ 2787          │ 20                 │
+│ en       │ 73935          │ 27                  │ 20              │ 24741              │ 6                       │ 6                            │ 49195         │ 20                 │
+└──────────┴────────────────┴─────────────────────┴─────────────────┴────────────────────┴─────────────────────────┴──────────────────────────────┴───────────────┴────────────────────┘
+```
+
+</details>
 
 ## Benchmarking spaCy model speed
 
