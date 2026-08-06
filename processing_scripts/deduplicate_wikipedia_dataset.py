@@ -8,6 +8,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Annotated, TypedDict
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import typer
 from datasets import (
     Dataset,
@@ -224,58 +226,70 @@ def compute_validation_overflow_plan(validation: Dataset, max_validation_documen
     return keep_indexes, move_to_train_indexes
 
 
-def compute_number_of_shards(dataset: Dataset, max_output_file_size_mb: int) -> int:
-    """Estimate how many Parquet shards a dataset needs to stay under a target size.
+def compute_number_of_shards(table: pa.Table, max_output_file_size_gb: float) -> int:
+    """Estimate how many Parquet shards a table needs to stay under a target size.
 
-    Uses the dataset's in-memory Arrow byte size as an approximation for its
-    written (zstd-compressed) Parquet size. Since compression typically
-    shrinks the on-disk size well below the in-memory size, this tends to
-    over-shard slightly rather than produce oversized files.
+    Takes an already-materialized `pa.Table` (see `write_language_parquet`)
+    rather than a `Dataset`, since a `Dataset`'s `.data.nbytes` reflects the
+    size of whatever underlying Arrow table(s) it's a view into -- after a
+    `Dataset.select`/`concatenate_datasets` call, that can be the entire
+    original (e.g. multi-shard, tens-of-thousands-of-rows) table, wildly
+    overstating a small selection's real size. A materialized `pa.Table`
+    doesn't have this problem, so its own `.nbytes` is accurate.
 
     Args:
-        dataset: The dataset to size.
-        max_output_file_size_mb: Target maximum shard size, in MB.
+        table: The (already-materialized) Arrow table to size.
+        max_output_file_size_gb: Target maximum shard size, in GB.
 
     Returns:
-        The number of shards needed, at least 1.
+        The number of shards needed. At least 1, and never more than
+        `table.num_rows` (a shard can't usefully hold zero rows).
 
     Examples:
-        >>> from datasets import Dataset
-        >>> compute_number_of_shards(Dataset.from_dict({"x": [1, 2, 3]}), max_output_file_size_mb=200)
+        >>> import pyarrow as pa
+        >>> compute_number_of_shards(pa.table({"x": [1, 2, 3]}), max_output_file_size_gb=1.0)
         1
     """
-    if len(dataset) == 0:
+    if table.num_rows == 0:
         return 1
-    # from MB to bytes
-    max_output_file_size_bytes = max_output_file_size_mb * 1024 * 1024
-    return max(1, math.ceil(dataset.data.nbytes / max_output_file_size_bytes))
+    # from GB to bytes
+    max_output_file_size_bytes = max_output_file_size_gb * 1024 * 1024 * 1024
+    return min(table.num_rows, max(1, math.ceil(table.nbytes / max_output_file_size_bytes)))
 
 
-def write_language_parquet(base_dir: Path, wikipedia_language_code: str, split: str, dataset: Dataset, max_output_file_size_mb: int) -> list[Path]:
+def write_language_parquet(base_dir: Path, wikipedia_language_code: str, split: str, dataset: Dataset, max_output_file_size_gb: float) -> list[Path]:
     """Write one language/split's dataset to one or more zstd-compressed Parquet shards.
 
-    Splits `dataset` into contiguous shards, each targeting at most
-    `max_output_file_size_mb` (see `compute_number_of_shards`), and writes
-    them under the dataset's `data/<language>/<split>/` layout.
+    `dataset` is first fully materialized into a single `pa.Table` (via
+    `Dataset.with_format("arrow")[:]`, which resolves any indices mapping
+    left over from `Dataset.select`/`concatenate_datasets` into real data),
+    then split into contiguous shards each targeting at most
+    `max_output_file_size_gb` (see `compute_number_of_shards`), and written
+    under the dataset's `data/<language>/<split>/` layout.
 
     Args:
         base_dir: Directory to write under.
         wikipedia_language_code: Wikipedia language code, e.g. `"en"`.
         split: Either `"train"` or `"validation"`.
         dataset: The dataset to write.
-        max_output_file_size_mb: Target maximum shard size, in MB.
+        max_output_file_size_gb: Target maximum shard size, in GB.
 
     Returns:
         The paths of the written Parquet shard files.
     """
     split_dir = base_dir / "data" / wikipedia_language_code / split
     split_dir.mkdir(parents=True, exist_ok=True)
-    number_of_shards = compute_number_of_shards(dataset, max_output_file_size_mb)
+    table = dataset.with_format("arrow")[:]
+    number_of_shards = compute_number_of_shards(table, max_output_file_size_gb)
+    rows_per_shard = math.ceil(table.num_rows / number_of_shards) if table.num_rows else 0
     output_paths = []
     for shard_index in range(number_of_shards):
-        shard = dataset.shard(num_shards=number_of_shards, index=shard_index, contiguous=True)
+        shard_table = table.slice(shard_index * rows_per_shard, rows_per_shard)
         output_path = split_dir / f"000_{shard_index:05d}.parquet"
-        shard.to_parquet(str(output_path), compression="zstd")
+        # datasets>=5's Dataset.to_parquet always passes its own `compression` kwarg to
+        # pyarrow internally, so forwarding compression="zstd" through it raises
+        # "got multiple values for keyword argument 'compression'" -- write via pyarrow directly instead.
+        pq.write_table(shard_table, output_path, compression="zstd")
         output_paths.append(output_path)
     return output_paths
 
@@ -332,7 +346,7 @@ def main(
     hf_dataset_revision: Annotated[str | None, typer.Option("--hf-dataset-revision", help="Branch (or other revision) of the Hub dataset repo to read/write. Defaults to the repo's default branch.")] = None,
     output_dir: Annotated[Path | None, typer.Option("--output-dir", help="Local directory to write the deduplicated Parquet output to, in `output_dir/data/<language>/{train,validation}/` subfolders. Omit to skip writing local output.")] = None,
     push: Annotated[bool, typer.Option("--push/--no-push", help="Whether to commit the deduplicated data back to --hf-dataset-repo-id, replacing each processed language's existing train/validation Parquet shards. Defaults to False, a dry run that only reports what would change.")] = False,
-    max_output_file_size: Annotated[int, typer.Option("-e", "--max-output-file-size", help="Target maximum size in MB per output Parquet shard; larger splits are written as multiple shard files instead of one.")] = 400,
+    max_output_file_size: Annotated[float, typer.Option("-e", "--max-output-file-size", help="Target maximum size in GB per output Parquet shard pre-compression (the actually file size will be a lot smaller due to the compression); larger splits are written as multiple shard files instead of one.")] = 1.0,
     max_validation_documents: Annotated[int, typer.Option("-n", "--max-validation-documents", help="Cap each language's post-dedup validation split at this many rows, moving any excess back to train (deterministically, via the same page_id hash TrainValidationSplitAnnotator uses). Fixes the known per-rank validation cap bug in train_validation_split.py, where a language whose task/rank count exceeds this value ends up with closer to that rank count of validation rows instead of this cap, without needing to re-run the whole pipeline. Should match the --max-validation-documents value the data was originally built with.")] = 20,
 ) -> None:
     """Deduplicate the Multilingual USAS Wikipedia dataset by `id`, per language.
