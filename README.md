@@ -355,6 +355,38 @@ Some options worth knowing about (run `--help` for the full list):
 * `--output-csv` - also write the table to a CSV file, with raw unformatted numeric values (unlike the console table, which adds `,` thousands separators).
 * `--output-latex` - also write the table as a LaTeX `tabular` environment (`booktabs`-style rules), with the same human-readable, escaped headers shown in the console table.
 
+<details>
+
+<summary>Initial Dataset Statistics</summary>
+
+``` bash
+┏━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Language ┃ Split      ┃ Articles ┃ Avg. Tokens / Article ┃ Avg. Sentences / Article ┃ Tokens      ┃ Labelled Tokens ┃ Multi Tag Membership (%) ┃ Unique Tags ┃ MWEs       ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ da       │ train      │ 177      │ 7,739.73              │ 371.74                   │ 1,369,932   │ 871,407         │ 7.48                     │ 210         │ 35,083     │
+│ da       │ validation │ 10       │ 4,621.00              │ 232.20                   │ 46,210      │ 28,562          │ 6.70                     │ 201         │ 1,084      │
+│ nl       │ train      │ 368      │ 7,287.37              │ 417.04                   │ 2,681,753   │ 1,513,916       │ 3.81                     │ 204         │ 0          │
+│ nl       │ validation │ 10       │ 7,743.40              │ 468.70                   │ 77,434      │ 43,976          │ 3.96                     │ 195         │ 0          │
+│ fi       │ train      │ 855      │ 3,964.76              │ 255.59                   │ 3,389,867   │ 1,992,394       │ 11.64                    │ 207         │ 0          │
+│ fi       │ validation │ 10       │ 3,843.10              │ 254.10                   │ 38,431      │ 22,524          │ 11.81                    │ 200         │ 0          │
+│ it       │ train      │ 1,145    │ 8,342.54              │ 289.94                   │ 9,552,206   │ 6,641,591       │ 4.48                     │ 214         │ 94,621     │
+│ it       │ validation │ 16       │ 5,469.00              │ 173.94                   │ 87,504      │ 63,275          │ 4.84                     │ 208         │ 889        │
+│ pt       │ train      │ 3,456    │ 5,156.83              │ 220.26                   │ 17,821,992  │ 11,546,969      │ 6.44                     │ 210         │ 132,634    │
+│ pt       │ validation │ 12       │ 5,304.92              │ 201.75                   │ 63,659      │ 41,313          │ 6.67                     │ 202         │ 495        │
+│ es       │ train      │ 4,573    │ 6,587.80              │ 200.96                   │ 30,126,019  │ 20,557,991      │ 0.61                     │ 214         │ 66,928     │
+│ es       │ validation │ 8        │ 2,899.50              │ 95.75                    │ 23,196      │ 16,397          │ 0.61                     │ 203         │ 37         │
+│ zh       │ train      │ 2,787    │ 5,539.20              │ 240.26                   │ 15,437,755  │ 7,058,881       │ 6.02                     │ 212         │ 47,474     │
+│ zh       │ validation │ 20       │ 8,739.45              │ 377.55                   │ 174,789     │ 72,346          │ 5.84                     │ 207         │ 442        │
+│ en       │ train      │ 49,195   │ 3,714.85              │ 145.04                   │ 182,752,078 │ 145,924,630     │ 4.96                     │ 215         │ 13,872,660 │
+│ en       │ validation │ 20       │ 4,954.95              │ 176.30                   │ 99,099      │ 73,536          │ 4.86                     │ 208         │ 7,858      │
+│ Total    │ train      │ 62,556   │ 4,206.34              │ 163.93                   │ 263,131,602 │ 196,107,779     │ 4.68                     │ 220         │ 14,249,400 │
+│ Total    │ validation │ 106      │ 5,757.75              │ 250.92                   │ 610,322     │ 361,929         │ 5.53                     │ 220         │ 10,805     │
+│ Total    │ total      │ 62,662   │ 4,208.96              │ 164.08                   │ 263,741,924 │ 196,469,708     │ 4.68                     │ 220         │ 14,260,205 │
+└──────────┴────────────┴──────────┴───────────────────────┴──────────────────────────┴─────────────┴─────────────────┴──────────────────────────┴─────────────┴────────────┘
+```
+
+</details>
+
 ## Clearing stale shards from a Hub dataset repository
 
 `HuggingFaceDatasetWriter` (used by `build_usas_wikipedia_dataset.py` when uploading directly to the Hub) only ever adds/overwrites the specific Parquet shard files it writes — it never deletes pre-existing files in the repo. If a previous run for a language wrote more shards than a later re-run produces (e.g. an earlier, larger run left `data/da/train/003.parquet` behind), those extra shards are silently left in the repo and included in the dataset by anyone loading it.
