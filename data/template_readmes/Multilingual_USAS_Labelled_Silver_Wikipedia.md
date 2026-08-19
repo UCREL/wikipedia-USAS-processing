@@ -16,54 +16,54 @@ size_categories:
 - 10k<n<100K
 pretty_name: Multilingual USAS Silver Labelled Wikipedia Articles
 configs:
-- config_name: en
-  data_files:
-  - split: train
-    path: data/en/train/*.parquet
-  - split: validation
-    path: data/en/validation/*.parquet
-- config_name: nl
-  data_files:
-  - split: train
-    path: data/nl/train/*.parquet
-  - split: validation
-    path: data/nl/validation/*.parquet
-- config_name: pt
-  data_files:
-  - split: train
-    path: data/pt/train/*.parquet
-  - split: validation
-    path: data/pt/validation/*.parquet
-- config_name: es
-  data_files:
-  - split: train
-    path: data/es/train/*.parquet
-  - split: validation
-    path: data/es/validation/*.parquet
-- config_name: da
-  data_files:
-  - split: train
-    path: data/da/train/*.parquet
-  - split: validation
-    path: data/da/validation/*.parquet
-- config_name: it
-  data_files:
-  - split: train
-    path: data/it/train/*.parquet
-  - split: validation
-    path: data/it/validation/*.parquet
-- config_name: fi
-  data_files:
-  - split: train
-    path: data/fi/train/*.parquet
-  - split: validation
-    path: data/fi/validation/*.parquet
-- config_name: zh
-  data_files:
-  - split: train
-    path: data/zh/train/*.parquet
-  - split: validation
-    path: data/zh/validation/*.parquet
+  - config_name: da
+    data_files:
+      - split: train
+        path: "data/da/train/*.parquet"
+      - split: validation
+        path: "data/da/validation/*.parquet"
+  - config_name: nl
+    data_files:
+      - split: train
+        path: "data/nl/train/*.parquet"
+      - split: validation
+        path: "data/nl/validation/*.parquet"
+  - config_name: fi
+    data_files:
+      - split: train
+        path: "data/fi/train/*.parquet"
+      - split: validation
+        path: "data/fi/validation/*.parquet"
+  - config_name: it
+    data_files:
+      - split: train
+        path: "data/it/train/*.parquet"
+      - split: validation
+        path: "data/it/validation/*.parquet"
+  - config_name: pt
+    data_files:
+      - split: train
+        path: "data/pt/train/*.parquet"
+      - split: validation
+        path: "data/pt/validation/*.parquet"
+  - config_name: es
+    data_files:
+      - split: train
+        path: "data/es/train/*.parquet"
+      - split: validation
+        path: "data/es/validation/*.parquet"
+  - config_name: zh
+    data_files:
+      - split: train
+        path: "data/zh/train/*.parquet"
+      - split: validation
+        path: "data/zh/validation/*.parquet"
+  - config_name: en
+    data_files:
+      - split: train
+        path: "data/en/train/*.parquet"
+      - split: validation
+        path: "data/en/validation/*.parquet"
 viewer: true
 ---
 # Multilingual USAS Silver Labelled Wikipedia Articles
