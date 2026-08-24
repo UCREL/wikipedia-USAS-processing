@@ -35,7 +35,12 @@ class TokenPyMUSASAnnotator(PipelineStep):
     name = "🏷 Token + PyMUSAS Tag/MWE"
     type = "🏷 - ANNOTATE"
 
-    def __init__(self, wikipedia_language_code: str, tag_mapper: dict[str, str] | None = None):
+    def __init__(
+        self,
+        wikipedia_language_code: str,
+        tag_mapper: dict[str, str] | None = None,
+        additional_valid_usas_tags: Iterable[str] | None = None,
+    ):
         """Initialize the annotator.
 
         Args:
@@ -46,6 +51,10 @@ class TokenPyMUSASAnnotator(PipelineStep):
                 (e.g. to collapse fine-grained tags into a coarser set) after
                 filtering. Tags with no entry in the mapping are kept
                 unchanged. If None, no mapping is applied.
+            additional_valid_usas_tags: Optional extra tags to treat as valid
+                USAS tags on top of the ones loaded from the USAS mapper
+                (e.g. "PUNCT", which PyMUSAS emits but is not itself part of
+                the USAS tagset). If None, no extra tags are added.
 
         Raises:
             ValueError: If wikipedia_language_code is not a supported
@@ -56,12 +65,14 @@ class TokenPyMUSASAnnotator(PipelineStep):
         supported_languages = list(ModelInstallLanguages)
         if _language is None:
             raise ValueError(f"Invalid language code: {wikipedia_language_code!r} Supported languages: {supported_languages!r}")
-        
+
         self.language = cast(ModelInstallLanguages, _language)
         self._nlp = None  # lazy-loaded per worker process
 
         usas_tags_to_filter_out = set({"Z99"})
         self.valid_usas_tags = set(load_usas_mapper(None, usas_tags_to_filter_out).keys())
+        if additional_valid_usas_tags is not None:
+            self.valid_usas_tags.update(additional_valid_usas_tags)
 
         self.tag_mapper: dict[str, str] = {}
         if tag_mapper is not None:

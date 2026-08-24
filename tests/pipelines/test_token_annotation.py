@@ -46,6 +46,18 @@ def test_init_raises_on_invalid_language_code() -> None:
         TokenPyMUSASAnnotator("xx")
 
 
+def test_init_does_not_add_extra_valid_usas_tags_by_default(annotator: TokenPyMUSASAnnotator) -> None:
+    # "PUNCT" is not part of the USAS mapper's own tagset, so it should only
+    # be considered valid when explicitly requested via
+    # `additional_valid_usas_tags`.
+    assert "PUNCT" not in annotator.valid_usas_tags
+
+
+def test_init_adds_additional_valid_usas_tags() -> None:
+    annotator = TokenPyMUSASAnnotator("en", additional_valid_usas_tags=["PUNCT", "FOO"])
+    assert {"PUNCT", "FOO"} < annotator.valid_usas_tags
+
+
 @pytest.mark.parametrize(
     ("text", "sentence_indexes", "expected"),
     [

@@ -133,6 +133,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
          max_validation_documents: Annotated[int, typer.Option("-n", "--max-validation-documents", help="Absolute cap on the number of documents in the validation split, regardless of --validation-percentage. The smaller of the percentage-based and absolute-cap counts wins.")] = 20,
          randomize_start_duration: Annotated[int, typer.Option("-r", "--randomize-start-duration", help="The maximum number of seconds to delay the start of each task to prevent all tasks from starting simultaneously and potentially overloading the system.")] = 5,
          tag_mapper_json: Annotated[str, typer.Option("--tag-mapper", help="JSON object mapping USAS tag strings to replacement tag strings, applied to each token's tags during PyMUSAS annotation. Tags with no entry are kept unchanged.")] = '{"PUNCT": "Z9"}',
+         additional_valid_usas_tags: Annotated[list[str] | None, typer.Option("--additional-valid-usas-tag", help="An extra tag to treat as a valid USAS tag during PyMUSAS annotation, on top of the tags loaded from the USAS mapper (e.g. 'PUNCT', which PyMUSAS emits but is not itself part of the USAS tagset). Repeat this option to add more than one tag. Defaults to just 'PUNCT'.")] = None,
          executor_backend: Annotated[ExecutorBackend, typer.Option("--executor", help="Which DataTrove executor backend to run pipeline stages with: 'local' runs stages as local multiprocessing workers; 'slurm' submits each stage as a Slurm job array.")] = ExecutorBackend.local,
          tasks_per_job: Annotated[int, typer.Option("-j", "--tasks-per-job", help="How many tasks each submitted Slurm array element runs, sequentially, before that array element finishes. Reduces the number of Slurm array elements submitted per stage from its task count to ceil(tasks / tasks_per_job), at the cost of each array element taking tasks_per_job times as long. Only used with --executor=slurm.")] = 1,
          slurm_partition: Annotated[str | None, typer.Option("--slurm-partition", help="Slurm partition to submit jobs to. Required when --executor=slurm.")] = None,
@@ -186,6 +187,8 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
     """
     pipeline_start_time = time.perf_counter()
     tag_mapper = parse_json_object(tag_mapper_json)
+    if additional_valid_usas_tags is None:
+        additional_valid_usas_tags = ["PUNCT"]
     dataset_id = "HuggingFaceFW/finewiki"
     wikipedia_language_code_str: str = wikipedia_language_code.value
     dataset_load_kwargs = {
@@ -473,7 +476,7 @@ def main(wikipedia_language_code: Annotated[WikipediaLanguageCode, typer.Argumen
         job_name="minhash_dedup_filter",
         tasks_per_job=tasks_per_job)
     post_processing_stage = executor_factory.create(
-        pipeline=[minhash_filter_read_pipe, SentenceSplitterAnnotator(wikipedia_language_code_str), TokenPyMUSASAnnotator(wikipedia_language_code_str, tag_mapper=tag_mapper), get_progress_logger_function("tokenization", log_every=100), train_validation_split_annotator, final_output_pipe],
+        pipeline=[minhash_filter_read_pipe, SentenceSplitterAnnotator(wikipedia_language_code_str), TokenPyMUSASAnnotator(wikipedia_language_code_str, tag_mapper=tag_mapper, additional_valid_usas_tags=additional_valid_usas_tags), get_progress_logger_function("tokenization", log_every=100), train_validation_split_annotator, final_output_pipe],
         tasks=number_processing_tasks, # This has to match minhash_sigs_stage
         workers=number_of_workers,
         logging_dir=logging_dir_post_processing_str,
