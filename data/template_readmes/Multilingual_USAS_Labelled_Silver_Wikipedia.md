@@ -125,14 +125,16 @@ split per language into `train` and `validation` subsets (see below).
   innermost list holds the most likely USAS tag(s) for a given token, e.g. `tags[0][0]` is the
   most likely USAS tag(s) for the first token of the first sentence — usually a single tag, but
   more than one when the token's meaning is a combination of the predicted tags. Some tokens have
-  no USAS tags, as the rule-based tagger cannot make a prediction for every token.
+  no USAS tags, as the rule-based tagger cannot make a prediction for every token. Tags within
+  each group are de-duplicated after any `tag_mapper` renaming is applied.
 * `other_tags` - list of a list of a list of a list of USAS tags, one level deeper than `tags`,
   containing every other valid USAS tag group for a token that was **not** its most likely tag
   group, e.g. `other_tags[0][0]` is a list of the other valid tag groups for the first token of
   the first sentence, and `other_tags[0][0][0]` the tags within the first of those groups. Each
   group is kept separate, rather than merged together, to preserve which tags PyMUSAS considered
   part of the same combined meaning. Most tokens have no other tag groups, in which case the
-  outer list is empty.
+  outer list is empty. As with `tags`, tags within each group are de-duplicated after any
+  `tag_mapper` renaming is applied.
 * `mwes` - list of a list of MWE labels predicted by the PyMUSAS rule-based tagger, relating to
   the most likely USAS tags. Labels denote, at the sentence level, which tokens form an MWE, e.g.
   if `mwes[0][0]` and `mwes[0][1]` both contain `1`, the first and second tokens of the first
