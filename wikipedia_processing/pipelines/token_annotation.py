@@ -21,11 +21,13 @@ class TokenPyMUSASAnnotator(PipelineStep):
     :class:`~wikipedia_processing.pipelines.sentence_splitting.SentenceSplitterAnnotator`)
     this step tokenizes the sentence with a language-specific spaCy + PyMUSAS
     pipeline, keeps each token's most likely tag if it is a valid USAS tag
-    (any other valid tags are kept separately), and derives Multi-Word
-    Expression (MWE) labels. Each document's metadata is updated in place
-    with "tokens", "tags", "other_tags" and "mwes" lists (one entry per
-    sentence), and step statistics are recorded for tokens, tagged tokens,
-    PyMUSAS tags, other PyMUSAS tags and MWEs.
+    (any other valid tag groups are kept separately, one inner list per
+    group), de-duplicates tags within each group (duplicates can appear once
+    `tag_mapper` collapses distinct fine-grained tags to the same coarse
+    tag), and derives Multi-Word Expression (MWE) labels. Each document's
+    metadata is updated in place with "tokens", "tags", "other_tags" and
+    "mwes" lists (one entry per sentence), and step statistics are recorded
+    for tokens, tagged tokens, PyMUSAS tags, other PyMUSAS tags and MWEs.
 
     Attributes:
         name: Human-readable step name shown in DataTrove pipeline stats.
@@ -131,10 +133,13 @@ class TokenPyMUSASAnnotator(PipelineStep):
 
         Lazily loads the language-specific spaCy + PyMUSAS pipeline on first
         use, then for every document tokenizes each of its sentences (from
-        :meth:`get_sentences`), keeps each token's most likely tag if it is a
-        valid USAS tag (optionally renamed via `tag_mapper`), keeps any other
-        valid USAS tags (these are tags that are not the token's most likely but could be valid)
-        for that token separately, and derives MWE labels
+        :meth:`get_sentences`), keeps each token's most likely tag group if it
+        is a valid USAS tag (optionally renamed via `tag_mapper`), keeps any
+        other valid USAS tag groups (these are tag groups that are not the
+        token's most likely but could be valid) for that token separately,
+        one inner list per group, de-duplicating tags within each group
+        (`tag_mapper` can collapse distinct fine-grained tags to the same
+        coarse tag), and derives MWE labels
         from the tagger's MWE index output. Sets doc.metadata["tokens"],
         doc.metadata["tags"], doc.metadata["other_tags"] and
         doc.metadata["mwes"] to lists with one entry per sentence, and
@@ -156,10 +161,12 @@ class TokenPyMUSASAnnotator(PipelineStep):
 
         Yields:
             Each input document, with its metadata updated in place to
-            include "tokens", "tags", "other_tags" and "mwes". "other_tags"
-            has the same shape as "tags" (a list per token, empty if there
-            are no other valid tags for that token) but holds every valid
-            USAS tag for the token beyond its most likely one.
+            include "tokens", "tags", "other_tags" and "mwes". "tags" holds
+            one list of tags per token, taken from its most likely tag group.
+            "other_tags" holds one list of groups per token (empty if there
+            are no other valid tag groups for that token), each an inner
+            list of tags, preserving every valid USAS tag group for the
+            token beyond its most likely one.
         """
         nlp = self._load_model()
 
@@ -203,21 +210,35 @@ class TokenPyMUSASAnnotator(PipelineStep):
 
                             valid_pymusas_tags = keep_valid_usas_tags(" ".join(pymusas_tags), self.valid_usas_tags)
                             valid_most_likely_pymusas_tags: list[str] = []
-                            other_valid_pymusas_tags: list[str] = []
+                            other_valid_pymusas_tag_groups: list[list[str]] = []
                             if valid_pymusas_tags and len(valid_pymusas_tags) > 0:
                                 valid_most_likely_pymusas_tags = valid_pymusas_tags[0].tag_strings
                                 number_tagged_tokens += 1
-                                for other_pymusas_tag_group in valid_pymusas_tags[1:]:
-                                    other_valid_pymusas_tags.extend(other_pymusas_tag_group.tag_strings)
+                                other_valid_pymusas_tag_groups = [
+                                    other_pymusas_tag_group.tag_strings
+                                    for other_pymusas_tag_group in valid_pymusas_tags[1:]
+                                ]
 
                             if self.tag_mapper:
                                 valid_most_likely_pymusas_tags = [self.tag_mapper.get(tag, tag) for tag in valid_most_likely_pymusas_tags]
-                                other_valid_pymusas_tags = [self.tag_mapper.get(tag, tag) for tag in other_valid_pymusas_tags]
+                                other_valid_pymusas_tag_groups = [
+                                    [self.tag_mapper.get(tag, tag) for tag in other_pymusas_tag_group]
+                                    for other_pymusas_tag_group in other_valid_pymusas_tag_groups
+                                ]
+
+                            # `tag_mapper` can collapse distinct fine-grained tags to the
+                            # same coarse tag; de-duplicate within each group so mapped
+                            # duplicates don't appear, while keeping first-seen order.
+                            valid_most_likely_pymusas_tags = list(dict.fromkeys(valid_most_likely_pymusas_tags))
+                            other_valid_pymusas_tag_groups = [
+                                list(dict.fromkeys(other_pymusas_tag_group))
+                                for other_pymusas_tag_group in other_valid_pymusas_tag_groups
+                            ]
 
                             number_pymusas_tags += len(valid_most_likely_pymusas_tags)
-                            number_other_pymusas_tags += len(other_valid_pymusas_tags)
+                            number_other_pymusas_tags += sum(len(group) for group in other_valid_pymusas_tag_groups)
                             tags.append(valid_most_likely_pymusas_tags)
-                            other_tags.append(other_valid_pymusas_tags)
+                            other_tags.append(other_valid_pymusas_tag_groups)
 
                         number_sentence_tokens = len(tokens)
                         tmp_mwe_labels = mwe_labels_from_pymusas_indexes(all_pymusas_mwe_indexes)

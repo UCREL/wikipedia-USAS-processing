@@ -141,9 +141,29 @@ def test_run_captures_other_valid_tags_beyond_the_most_likely_one() -> None:
     (result,) = _run_with_fake_tagger(annotator, [doc], sentence_tokens)
 
     assert result.metadata["tags"] == [[["Z2"]]]
-    assert result.metadata["other_tags"] == [[["E3"]]]
+    # "other_tags" holds one inner list per other valid tag group, not a
+    # flat merge of every other tag, so the single other group ("E3") is
+    # nested one level deeper than "tags".
+    assert result.metadata["other_tags"] == [[[["E3"]]]]
     assert annotator.stats["PyMUSAS tags"].total == 1
     assert annotator.stats["other PyMUSAS tags"].total == 1
+
+
+def test_run_keeps_other_tag_groups_separate() -> None:
+    # Two other tag groups beyond the most likely one should stay as two
+    # separate inner lists rather than being merged together.
+    annotator = TokenPyMUSASAnnotator("en")
+    annotator.valid_usas_tags = {"Z2", "E3", "A1", "A2"}
+    sentence_tokens = {
+        "Cats": [_make_token("Cats", pymusas_tags=["Z2 E3 A1/A2"], pymusas_mwe_indexes=[(0, 1)])],
+    }
+
+    doc = Document(text="Cats", id="1", metadata={"start_end_sentence_character_indexes": [(0, 4)]})
+    (result,) = _run_with_fake_tagger(annotator, [doc], sentence_tokens)
+
+    assert result.metadata["tags"] == [[["Z2"]]]
+    assert result.metadata["other_tags"] == [[[["E3"], ["A1", "A2"]]]]
+    assert annotator.stats["other PyMUSAS tags"].total == 3
 
 
 def test_run_applies_tag_mapper() -> None:
@@ -157,7 +177,29 @@ def test_run_applies_tag_mapper() -> None:
     (result,) = _run_with_fake_tagger(annotator, [doc], sentence_tokens)
 
     assert result.metadata["tags"] == [[["Z2_MAPPED"]]]
-    assert result.metadata["other_tags"] == [[["E3_MAPPED"]]]
+    assert result.metadata["other_tags"] == [[[["E3_MAPPED"]]]]
+
+
+def test_run_dedupes_tags_within_a_group_after_mapping_collapses_them() -> None:
+    # `tag_mapper` can map distinct fine-grained tags to the same coarse
+    # tag; the resulting duplicates within a single group should be
+    # collapsed rather than kept, both in the most-likely group and in
+    # each "other" group.
+    annotator = TokenPyMUSASAnnotator(
+        "en", tag_mapper={"Z2": "COARSE", "Z3": "COARSE", "E3": "OTHER_COARSE", "E4": "OTHER_COARSE"}
+    )
+    annotator.valid_usas_tags = {"Z2", "Z3", "E3", "E4"}
+    sentence_tokens = {
+        "Cats": [_make_token("Cats", pymusas_tags=["Z2/Z3 E3/E4"], pymusas_mwe_indexes=[(0, 1)])],
+    }
+
+    doc = Document(text="Cats", id="1", metadata={"start_end_sentence_character_indexes": [(0, 4)]})
+    (result,) = _run_with_fake_tagger(annotator, [doc], sentence_tokens)
+
+    assert result.metadata["tags"] == [[["COARSE"]]]
+    assert result.metadata["other_tags"] == [[[["OTHER_COARSE"]]]]
+    assert annotator.stats["PyMUSAS tags"].total == 1
+    assert annotator.stats["other PyMUSAS tags"].total == 1
 
 
 
