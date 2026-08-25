@@ -226,6 +226,164 @@ def compute_validation_overflow_plan(validation: Dataset, max_validation_documen
     return keep_indexes, move_to_train_indexes
 
 
+def compute_target_validation_documents(total_documents: int, max_validation_percentage: float, max_validation_documents: int) -> int:
+    """Compute the intended validation split size: `min(X% of total, N)`.
+
+    Mirrors the train/validation split rule described in `README.md`'s
+    "Train/validation split" section and used by
+    `build_usas_wikipedia_dataset.py`'s `-v/--validation-percentage` and
+    `-n/--max-validation-documents` options: a language's validation split
+    should be `max_validation_percentage`% of its total document count, or
+    `max_validation_documents`, whichever is smaller. Percentage rounding
+    uses Python's built-in `round` (banker's rounding), matching
+    `TrainValidationSplitAnnotator`'s own
+    `round(self.max_validation_documents / world_size)`.
+
+    Args:
+        total_documents: The language's total (post-dedup) document count,
+            across `train` and `validation` combined.
+        max_validation_percentage: Target percentage (0-100) of
+            `total_documents` to assign to validation.
+        max_validation_documents: Absolute cap on the validation split size,
+            regardless of `max_validation_percentage`.
+
+    Returns:
+        The smaller of the percentage-based count and
+        `max_validation_documents`, floored at 0.
+
+    Examples:
+        >>> compute_target_validation_documents(200, max_validation_percentage=10, max_validation_documents=20)
+        20
+        >>> compute_target_validation_documents(150, max_validation_percentage=10, max_validation_documents=20)
+        15
+    """
+    percentage_based = round(total_documents * max_validation_percentage / 100)
+    return max(0, min(percentage_based, max_validation_documents))
+
+
+class ValidationRebalancePlan(TypedDict):
+    """Plan for rebalancing `train`/`validation` splits to a target validation size.
+
+    Attributes:
+        train_keep_indexes: Indexes into the original `train` split to keep
+            in the new `train` split.
+        train_move_to_validation_indexes: Indexes into the original `train`
+            split whose rows are relocated to the new `validation` split.
+        validation_keep_indexes: Indexes into the original `validation`
+            split to keep in the new `validation` split.
+        validation_move_to_train_indexes: Indexes into the original
+            `validation` split whose rows are relocated to the new `train`
+            split.
+        target_validation_documents: The target validation document count
+            actually used, after clamping the requested target to
+            `[0, len(train) + len(validation)]`.
+    """
+
+    train_keep_indexes: list[int]
+    train_move_to_validation_indexes: list[int]
+    validation_keep_indexes: list[int]
+    validation_move_to_train_indexes: list[int]
+    target_validation_documents: int
+
+
+def compute_validation_rebalance_plan(train: Dataset, validation: Dataset, target_validation_documents: int, split_hash_metadata_key: str = "page_id") -> ValidationRebalancePlan:
+    """Plan how to rebalance `train`/`validation` to an exact target validation size.
+
+    Unlike `compute_validation_overflow_plan`, which only ever shrinks an
+    oversized `validation` split, this ranks every row from `train` and
+    `validation` (combined) by `compute_split_hash` -- the same deterministic
+    ordering `TrainValidationSplitAnnotator` and `compute_validation_overflow_plan`
+    both use -- and assigns the `target_validation_documents` rows with the
+    smallest hash to `validation`, the rest to `train`. Ranking the pooled
+    rows once, rather than only ever removing rows from `validation`, lets
+    the same plan either grow `validation` (pulling rows from `train`) or
+    shrink it, depending on how `target_validation_documents` compares to
+    `validation`'s current size.
+
+    Args:
+        train: The language's `train` split. Must have
+            `split_hash_metadata_key` as a column.
+        validation: The language's `validation` split. Must have
+            `split_hash_metadata_key` as a column.
+        target_validation_documents: The intended size of the new
+            `validation` split. Clamped to `[0, len(train) + len(validation)]`
+            if out of range.
+        split_hash_metadata_key: The column hashed to rank rows
+            deterministically, matching `TrainValidationSplitAnnotator`'s
+            `split_hash_metadata_key`.
+
+    Returns:
+        A `ValidationRebalancePlan` describing which original row indexes to
+        keep or move.
+
+    Examples:
+        >>> from datasets import Dataset
+        >>> train = Dataset.from_dict({"page_id": [1, 2, 3, 4]})
+        >>> validation = Dataset.from_dict({"page_id": [5]})
+        >>> plan = compute_validation_rebalance_plan(train, validation, target_validation_documents=2)
+        >>> plan["target_validation_documents"]
+        2
+        >>> len(plan["validation_keep_indexes"]) + len(plan["train_move_to_validation_indexes"])
+        2
+    """
+    clamped_target = max(0, min(target_validation_documents, len(train) + len(validation)))
+
+    combined = [("train", index, compute_split_hash(value)) for index, value in enumerate(train[split_hash_metadata_key])]
+    combined += [("validation", index, compute_split_hash(value)) for index, value in enumerate(validation[split_hash_metadata_key])]
+    combined.sort(key=lambda item: item[2])
+
+    train_keep_indexes: list[int] = []
+    train_move_to_validation_indexes: list[int] = []
+    validation_keep_indexes: list[int] = []
+    validation_move_to_train_indexes: list[int] = []
+
+    for rank, (split, index, _) in enumerate(combined):
+        is_validation = rank < clamped_target
+        match (split, is_validation):
+            case ("train", True):
+                train_move_to_validation_indexes.append(index)
+            case ("train", False):
+                train_keep_indexes.append(index)
+            case ("validation", True):
+                validation_keep_indexes.append(index)
+            case _:
+                validation_move_to_train_indexes.append(index)
+
+    return ValidationRebalancePlan(
+        train_keep_indexes=sorted(train_keep_indexes),
+        train_move_to_validation_indexes=sorted(train_move_to_validation_indexes),
+        validation_keep_indexes=sorted(validation_keep_indexes),
+        validation_move_to_train_indexes=sorted(validation_move_to_train_indexes),
+        target_validation_documents=clamped_target,
+    )
+
+
+def apply_validation_rebalance_plan(train: Dataset, validation: Dataset, plan: ValidationRebalancePlan) -> tuple[Dataset, Dataset]:
+    """Apply a `ValidationRebalancePlan` to produce rebalanced `train`/`validation` splits.
+
+    Args:
+        train: The original `train` split the plan was computed from.
+        validation: The original `validation` split the plan was computed
+            from.
+        plan: The plan returned by `compute_validation_rebalance_plan` for
+            `train` and `validation`.
+
+    Returns:
+        A `(new_train, new_validation)` tuple of rebalanced datasets.
+    """
+    train_parts = [train.select(plan["train_keep_indexes"])]
+    if plan["validation_move_to_train_indexes"]:
+        train_parts.append(validation.select(plan["validation_move_to_train_indexes"]))
+    new_train = concatenate_datasets(train_parts) if len(train_parts) > 1 else train_parts[0]
+
+    validation_parts = [validation.select(plan["validation_keep_indexes"])]
+    if plan["train_move_to_validation_indexes"]:
+        validation_parts.append(train.select(plan["train_move_to_validation_indexes"]))
+    new_validation = concatenate_datasets(validation_parts) if len(validation_parts) > 1 else validation_parts[0]
+
+    return new_train, new_validation
+
+
 def compute_number_of_shards(table: pa.Table, max_output_file_size_gb: float) -> int:
     """Estimate how many Parquet shards a table needs to stay under a target size.
 
@@ -348,6 +506,7 @@ def main(
     push: Annotated[bool, typer.Option("--push/--no-push", help="Whether to commit the deduplicated data back to --hf-dataset-repo-id, replacing each processed language's existing train/validation Parquet shards. Defaults to False, a dry run that only reports what would change.")] = False,
     max_output_file_size: Annotated[float, typer.Option("-e", "--max-output-file-size", help="Target maximum size in GB per output Parquet shard pre-compression (the actually file size will be a lot smaller due to the compression); larger splits are written as multiple shard files instead of one.")] = 1.0,
     max_validation_documents: Annotated[int, typer.Option("-n", "--max-validation-documents", help="Cap each language's post-dedup validation split at this many rows, moving any excess back to train (deterministically, via the same page_id hash TrainValidationSplitAnnotator uses). Fixes the known per-rank validation cap bug in train_validation_split.py, where a language whose task/rank count exceeds this value ends up with closer to that rank count of validation rows instead of this cap, without needing to re-run the whole pipeline. Should match the --max-validation-documents value the data was originally built with.")] = 20,
+    max_validation_percentage: Annotated[float | None, typer.Option("-p", "--max-validation-percentage", help="Target percentage (0-100) of each language's post-dedup total documents assigned to validation, mirroring build_usas_wikipedia_dataset.py's --validation-percentage. When given, each language's validation split is rebalanced to exactly min(round(total_post_dedup_documents * max_validation_percentage / 100), max_validation_documents) -- unlike --max-validation-documents alone, this can grow validation (pulling rows from train) as well as shrink it. Omit (default) to keep the existing shrink-only --max-validation-documents cap behavior unchanged.")] = None,
 ) -> None:
     """Deduplicate the Multilingual USAS Wikipedia dataset by `id`, per language.
 
@@ -372,13 +531,20 @@ def main(
         Deduplicate every language and push the result back to the Hub:
 
         $ uv run processing_scripts/deduplicate_wikipedia_dataset.py --push
+
+        Also rebalance validation to 10% of each language's documents (capped
+        at --max-validation-documents), growing an undersized split as well
+        as shrinking an oversized one:
+
+        $ uv run processing_scripts/deduplicate_wikipedia_dataset.py \\
+              -p 10 --push
     """
     load_dotenv()
     wikipedia_language_codes = [language.value for language in languages] if languages else get_dataset_config_names(hf_dataset_repo_id, revision=hf_dataset_revision)
 
     api = HfApi() if push else None
     summary_table = Table(title="Deduplication report")
-    for column in ("language", "train (before)", "validation (before)", "cross-split ids", "removed from train", "removed from validation", "validation overflow -> train", "train (after)", "validation (after)"):
+    for column in ("language", "train (before)", "validation (before)", "cross-split ids", "removed from train", "removed from validation", "validation target", "train → validation", "validation → train", "train (after)", "validation (after)"):
         summary_table.add_column(column)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -390,11 +556,24 @@ def main(
 
             new_train, new_validation = apply_dedup_plan(train, validation, plan)
 
-            validation_keep_indexes, validation_overflow_indexes = compute_validation_overflow_plan(new_validation, max_validation_documents)
-            if validation_overflow_indexes:
-                overflow_to_train = new_validation.select(validation_overflow_indexes)
-                new_validation = new_validation.select(validation_keep_indexes)
-                new_train = concatenate_datasets([new_train, overflow_to_train])
+            match max_validation_percentage:
+                case None:
+                    validation_keep_indexes, validation_overflow_indexes = compute_validation_overflow_plan(new_validation, max_validation_documents)
+                    if validation_overflow_indexes:
+                        overflow_to_train = new_validation.select(validation_overflow_indexes)
+                        new_validation = new_validation.select(validation_keep_indexes)
+                        new_train = concatenate_datasets([new_train, overflow_to_train])
+                    target_display = "—"
+                    moved_to_validation = 0
+                    moved_to_train = len(validation_overflow_indexes)
+                case _:
+                    total_documents = len(new_train) + len(new_validation)
+                    target_validation_documents = compute_target_validation_documents(total_documents, max_validation_percentage, max_validation_documents)
+                    rebalance_plan = compute_validation_rebalance_plan(new_train, new_validation, target_validation_documents)
+                    new_train, new_validation = apply_validation_rebalance_plan(new_train, new_validation, rebalance_plan)
+                    target_display = str(rebalance_plan["target_validation_documents"])
+                    moved_to_validation = len(rebalance_plan["train_move_to_validation_indexes"])
+                    moved_to_train = len(rebalance_plan["validation_move_to_train_indexes"])
 
             summary_table.add_row(
                 wikipedia_language_code,
@@ -403,7 +582,9 @@ def main(
                 str(plan["cross_split_ids"]),
                 str(plan["removed_from_train"]),
                 str(plan["removed_from_validation"]),
-                str(len(validation_overflow_indexes)),
+                target_display,
+                str(moved_to_validation),
+                str(moved_to_train),
                 str(len(new_train)),
                 str(len(new_validation)),
             )
