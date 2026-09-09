@@ -38,24 +38,14 @@ from typing import Annotated
 
 import typer
 
+from wikipedia_processing.utils import (
+    discover_log_data_language_directories,
+    language_display_name,
+)
+
 LOG_TIMESTAMP_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})")
 LOG_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
 SLURM_ARRAY_PATTERN = re.compile(r"--array=(\d+)(?:-(\d+))?(?:%(\d+))?")
-
-# Sub-directories of ``log_data`` that are not per-language pipeline outputs.
-NON_LANGUAGE_DIRECTORY_NAMES = frozenset({"driver"})
-
-# Wikipedia language codes handled by the pipeline, mapped to their English names.
-LANGUAGE_NAMES_BY_CODE = {
-    "en": "English",
-    "nl": "Dutch",
-    "es": "Spanish",
-    "da": "Danish",
-    "it": "Italian",
-    "pt": "Portuguese",
-    "zh": "Chinese",
-    "fi": "Finnish",
-}
 
 TABLE_HEADERS = ("Language", "Max nodes", "Total wall-clock")
 _COLUMN_ALIGNMENTS = ("left", "right", "left")
@@ -95,24 +85,6 @@ class LanguagePipelineSummary:
     language_name: str
     maximum_node_count: int | None
     wall_clock_seconds: float | None
-
-
-def language_display_name(language_code: str) -> str:
-    """Return the human-readable name for a Wikipedia language code.
-
-    Args:
-        language_code: Wikipedia language code, e.g. ``"nl"``.
-
-    Returns:
-        The mapped language name, or the code unchanged when it is unknown.
-
-    Examples:
-        >>> language_display_name("nl")
-        'Dutch'
-        >>> language_display_name("xx")
-        'xx'
-    """
-    return LANGUAGE_NAMES_BY_CODE.get(language_code, language_code)
 
 
 def format_duration(seconds: float) -> str:
@@ -257,33 +229,6 @@ def maximum_node_count(language_directory: Path) -> int | None:
         if SLURM_ARRAY_PATTERN.search(script_text) is not None:
             concurrencies.append(parse_slurm_array_concurrency(script_text))
     return max(concurrencies) if concurrencies else None
-
-
-def discover_language_directories(log_data_directory: Path) -> list[Path]:
-    """Find the per-language pipeline folders inside a ``log_data`` directory.
-
-    Args:
-        log_data_directory: The pipeline ``log_data`` folder.
-
-    Returns:
-        Sorted sub-directories that hold pipeline output (at least one
-        ``*/launch_script.slurm`` or ``*/logs/task_*.log``), excluding the
-        ``driver`` folder.
-
-    Examples:
-        >>> [p.name for p in discover_language_directories(Path("log_data"))]  # doctest: +SKIP
-        ['da', 'en', 'es', 'fi', 'it', 'nl', 'pt', 'zh']
-    """
-    language_directories: list[Path] = []
-    for entry in sorted(log_data_directory.iterdir()):
-        if not entry.is_dir() or entry.name in NON_LANGUAGE_DIRECTORY_NAMES:
-            continue
-        has_pipeline_output = any(entry.glob("*/launch_script.slurm")) or any(
-            entry.glob("*/logs/task_*.log")
-        )
-        if has_pipeline_output:
-            language_directories.append(entry)
-    return language_directories
 
 
 def summarise_language(language_directory: Path) -> LanguagePipelineSummary:
@@ -521,7 +466,7 @@ def main(
     if not log_data_directory.is_dir():
         raise typer.BadParameter(f"Not a directory: {log_data_directory}")
 
-    language_directories = discover_language_directories(log_data_directory)
+    language_directories = discover_log_data_language_directories(log_data_directory)
     if not language_directories:
         raise typer.BadParameter(
             f"No per-language pipeline folders found under {log_data_directory}"

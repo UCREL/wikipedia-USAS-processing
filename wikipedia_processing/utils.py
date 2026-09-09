@@ -51,15 +51,6 @@ def get_available_cpu_count() -> int:
     return os.cpu_count() or 1
 
 
-def load_page_meta_data_file(meta_data_file: Path) -> dict[str, int]:
-
-    return {}
-
-
-
-
-
-
 def convert_dataset_to_lookup(dataset: datasets.IterableDataset) -> dict[int, str]:
     """
     Convert an iterable dataset to a dictionary mapping page IDs to their corresponding titles.
@@ -216,6 +207,67 @@ def get_usas_language_processing_information(
         f"Language {wikipedia_language_code!r} not found in {language_data_file}. "
         f"Valid Wikipedia language codes are: {valid_codes}"
     )
+
+
+def language_display_name(
+    wikipedia_language_code: str, language_data_file: Path | None = None
+) -> str:
+    """Return the English language name for a Wikipedia language code.
+
+    Args:
+        wikipedia_language_code: A Wikipedia language code, e.g. ``"nl"``.
+        language_data_file: Optional override passed through to
+            `get_usas_language_processing_information`.
+
+    Returns:
+        The mapped English name (e.g. ``"Dutch"``), or wikipedia_language_code
+        unchanged when it has no USAS processing entry.
+
+    Examples:
+        >>> language_display_name("nl")
+        'Dutch'
+        >>> language_display_name("xx")
+        'xx'
+    """
+    try:
+        return get_usas_language_processing_information(
+            wikipedia_language_code, language_data_file
+        )["language"]
+    except ValueError:
+        return wikipedia_language_code
+
+
+# Sub-directories of a ``log_data`` folder that are not per-language pipeline outputs.
+NON_LANGUAGE_LOG_DATA_DIRECTORY_NAMES = frozenset({"driver"})
+
+
+def discover_log_data_language_directories(log_data_directory: Path) -> list[Path]:
+    """Find the per-language pipeline folders inside a ``log_data`` directory.
+
+    A DataTrove run writes one sub-directory per language under ``log_data``,
+    each holding one sub-directory per pipeline stage, plus a ``driver`` folder
+    of launch logs. Every stage sub-directory contains a ``stats.json``, so a
+    language folder is any sub-directory with at least one ``*/stats.json``.
+
+    Args:
+        log_data_directory: The pipeline ``log_data`` folder.
+
+    Returns:
+        Sorted sub-directories that hold at least one ``*/stats.json`` file,
+        excluding the ``driver`` folder.
+
+    Examples:
+        >>> discover_log_data_language_directories(Path("log_data"))  # doctest: +SKIP
+        [PosixPath('log_data/da'), PosixPath('log_data/en'), ...]
+    """
+    language_directories: list[Path] = []
+    for entry in sorted(log_data_directory.iterdir()):
+        if not entry.is_dir() or entry.name in NON_LANGUAGE_LOG_DATA_DIRECTORY_NAMES:
+            continue
+        if any(entry.glob("*/stats.json")):
+            language_directories.append(entry)
+    return language_directories
+
 
 def get_hashes_per_bucket(num_buckets: int, threshold: float) -> int:
     """Estimate the number of hashes per bucket (r) for MinHash LSH banding.
