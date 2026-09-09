@@ -433,6 +433,61 @@ Some options worth knowing about (run `--help` for the full list):
 
 </details>
 
+## Documents filtered at each pipeline stage
+
+[processing_scripts/report_pipeline_document_funnel.py](processing_scripts/report_pipeline_document_funnel.py) summarises, per language, how many documents each filtering stage removed on a completed run. Like the runtime report above it only reads the `log_data/` folder — specifically each stage's `stats.json` (`total` documents in, `forwarded` documents out) — and never touches the dataset. Six pipeline blocks discard documents, in this order:
+
+| Stage folder | Block | Removes |
+| --- | --- | --- |
+| `reading` | Lambda | pages that are not Wikipedia "Good"/"Featured" articles |
+| `reading` | Simple URL Filter | held-out test-set URLs |
+| `initial_process` | Empty text filter | documents empty after the markdown → plain-text conversion |
+| `initial_process` | Minimum Words Document Filter | documents below the min-word threshold |
+| `exact_dedup_filter` | exact-deduplication | exact-duplicate documents |
+| `minhash_dedup_filter` | MinHash stage 4 | near-duplicate documents (MinHash threshold) |
+
+Two views are available:
+
+* `--view dropped` (default) — documents removed at each stage, the total removed, and the count (with percentage of the FineWiki input) that survived.
+* `--view survived` — the FineWiki input count and the number of documents still alive after each stage.
+
+A stage that dropped nothing for every language is omitted (the empty-text filter is normally dormant); pass `--all-stages` to keep every column. The table is Markdown by default, or a LaTeX `booktabs` `tabular` with `--format latex`.
+
+``` bash
+# Per-stage drop counts for the local log_data folder, largest corpus first:
+uv run processing_scripts/report_pipeline_document_funnel.py ./log_data
+
+# Surviving-document funnel as a LaTeX table:
+uv run processing_scripts/report_pipeline_document_funnel.py ./log_data \
+    --view survived --format latex --output-file ./data/tables/pipeline_funnel.tex
+```
+
+Some options worth knowing about (run `--help` for the full list):
+* `-v`/`--view` - `dropped` (default) or `survived`.
+* `-f`/`--format` - `markdown` (default) or `latex`.
+* `-s`/`--sort-by` - row ordering: `input` (descending FineWiki input), `kept` (descending), or `language` (default, A–Z).
+* `--all-stages` - keep filter-stage columns that dropped nothing for any language.
+* `-o`/`--output-file` - write the table to a file instead of stdout.
+
+<details>
+
+<summary>Per-stage drop counts for the original dataset run</summary>
+
+``` bash
+| Language   | Good/Featured | Test URL | Min words | Exact dedup | MinHash dedup | Total removed |            Kept |
+| :--------- | ------------: | -------: | --------: | ----------: | ------------: | ------------: | --------------: |
+| Chinese    |     1,291,263 |        0 |     1,526 |         196 |           155 |     1,293,140 |  2,815 (0.217%) |
+| Danish     |       291,764 |        0 |         0 |           7 |             3 |       291,774 |    187 (0.064%) |
+| Dutch      |     2,072,477 |        0 |         0 |           5 |             5 |     2,072,487 |   378 (0.0182%) |
+| English    |     6,562,224 |        4 |         6 |       1,608 |         1,571 |     6,565,413 | 49,242 (0.744%) |
+| Finnish    |       571,963 |        0 |         0 |          30 |            42 |       572,035 |    865 (0.151%) |
+| Italian    |     1,798,167 |        0 |         0 |         178 |           252 |     1,798,597 | 1,162 (0.0646%) |
+| Portuguese |     1,131,646 |        0 |         0 |         167 |           100 |     1,131,913 |  3,470 (0.306%) |
+| Spanish    |     1,943,867 |        0 |         0 |         265 |           243 |     1,944,375 |  4,590 (0.236%) |
+```
+
+</details>
+
 ## Clearing stale shards from a Hub dataset repository
 
 `HuggingFaceDatasetWriter` (used by `build_usas_wikipedia_dataset.py` when uploading directly to the Hub) only ever adds/overwrites the specific Parquet shard files it writes — it never deletes pre-existing files in the repo. If a previous run for a language wrote more shards than a later re-run produces (e.g. an earlier, larger run left `data/da/train/003.parquet` behind), those extra shards are silently left in the repo and included in the dataset by anyone loading it.

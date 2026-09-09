@@ -20,8 +20,8 @@ across 8 languages (English, Dutch, Spanish, Danish, Italian, Portuguese, Chines
 - `executors.py` — `ExecutorBackend` (local/slurm choice), `SlurmExecutorSettings`, and
   `PipelineExecutorFactory`, which builds either a `LocalPipelineExecutor` or a
   `SlurmPipelineExecutor` per pipeline stage from a single shared backend config.
-- `utils.py` — `get_language_information` (loads `data/languages.yaml`), `truncate_to_255_bytes`.
-  Note: `load_page_meta_data_file` is an unimplemented stub (returns `{}`).
+- `utils.py` — `get_language_information` (loads `data/languages.yaml`), `truncate_to_255_bytes`,
+  plus `log_data` report helpers (`discover_log_data_language_directories`, `language_display_name`).
 - `models_util.py` — builds language-specific spaCy pipelines: `get_language_tagger` (spaCy +
   PyMUSAS rule-based tagger) and `get_language_sentence_splitter`.
 - `models_install.py` — Typer CLI to download/install the spaCy + PyMUSAS models per language.
