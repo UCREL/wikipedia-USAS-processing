@@ -391,6 +391,48 @@ Some options worth knowing about (run `--help` for the full list):
 
 </details>
 
+## Pipeline runtime and peak node usage
+
+[processing_scripts/report_pipeline_runtime_and_nodes.py](processing_scripts/report_pipeline_runtime_and_nodes.py) summarises, per language, how long a completed run of the pipeline took and how many compute nodes it could use in parallel. It reads the `logging_dir` that `build_usas_wikipedia_dataset.py` / `run_all_training_languages.py` wrote (`./log_data/` in the examples above) — it does not touch the dataset or re-run any processing. For each `log_data/<wikipedia_language_code>/` folder (the `driver/` folder is skipped) it derives:
+
+* **Total wall-clock** — the span between the earliest and latest timestamp across every stage's `*/logs/task_*.log`. This is end-to-end run time and includes the Slurm queue gaps between the dependent stages, not just compute time.
+* **Max nodes** — the widest `#SBATCH --array=0-(N-1)%M` directive across the language's stages. Every array task requests `--nodes=1` (see [Understanding tasks, workers, and resources on Slurm](#understanding-tasks-workers-and-resources-on-slurm) above), so this is the most nodes the language can occupy at once. The minimum is always `1` — stages run as a dependency chain and each task is an independent single-core job — so only the maximum is reported.
+
+The table is printed as Markdown by default, or as a LaTeX `booktabs` `tabular` with `--format latex`.
+
+``` bash
+# Markdown table for the local log_data folder, rows ordered by language name alphabetically:
+uv run processing_scripts/report_pipeline_runtime_and_nodes.py ./log_data
+
+# LaTeX table, ordered by descending node count, written to a file:
+uv run processing_scripts/report_pipeline_runtime_and_nodes.py ./log_data \
+    --format latex --sort-by nodes --output-file ./data/tables/pipeline_runtime.tex
+```
+
+Some options worth knowing about (run `--help` for the full list):
+* `-f`/`--format` - `markdown` (default) or `latex`.
+* `-s`/`--sort-by` - row ordering: `runtime` (descending), `nodes` (descending), or `language` (default, A–Z).
+* `-o`/`--output-file` - write the table to a file instead of stdout.
+
+<details>
+
+<summary>Runtime / node table for the original dataset run</summary>
+
+``` bash
+| Language   | Max nodes | Total wall-clock |
+| :--------- | --------: | :--------------- |
+| English    |        15 | 2h 49m 54s       |
+| Portuguese |         3 | 2h 33m 41s       |
+| Chinese    |         5 | 57m 17s          |
+| Spanish    |         4 | 55m 59s          |
+| Danish     |         2 | 33m 26s          |
+| Finnish    |         2 | 29m 35s          |
+| Italian    |         4 | 28m 2s           |
+| Dutch      |         2 | 23m 37s          |
+```
+
+</details>
+
 ## Clearing stale shards from a Hub dataset repository
 
 `HuggingFaceDatasetWriter` (used by `build_usas_wikipedia_dataset.py` when uploading directly to the Hub) only ever adds/overwrites the specific Parquet shard files it writes — it never deletes pre-existing files in the repo. If a previous run for a language wrote more shards than a later re-run produces (e.g. an earlier, larger run left `data/da/train/003.parquet` behind), those extra shards are silently left in the repo and included in the dataset by anyone loading it.
