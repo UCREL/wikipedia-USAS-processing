@@ -1,8 +1,10 @@
-# wikipedia-USAS-processing
+# Wikipedia-USAS-processing
 
-This repository contains various [DataTrove](https://github.com/huggingface/datatrove) pipelines, filters, formatters, and helper functions for processing the [HuggingFaceFW finewiki](https://huggingface.co/datasets/HuggingFaceFW/finewiki) dataset, in various languages listed in the [languages section](#languages), to create a synthetic (silver labelled) training dataset for USAS semantic tags and Multi Word Expression (MWE) identification for some languages.
+This repository contains various [DataTrove](https://github.com/huggingface/datatrove) pipelines, filters, formatters, and helper functions for processing the [HuggingFaceFW finewiki](https://huggingface.co/datasets/HuggingFaceFW/finewiki) dataset, in various languages listed in the [languages section](#languages), to create a synthetic (silver labelled) training dataset for USAS semantic tags and Multi Word Expression (MWE) identification for these languages.
 
 For more information on the filtering and processing, see the [filtering and processing section below](#filtering-and-processing) and for more information about the data we use see [the data section below.](#data)
+
+The commands we ran to process the data for the journal paper can be found in [the commands used to create the original dataset section below.](#commands-used-to-create-the-original-ucrelnlpmultilingual-usas-labelled-silver-wikipedia-dataset)
 
 
 ## Setup
@@ -81,9 +83,9 @@ Set the relevant permissions, the minimum for this is repository is "read" only 
 The data will be coming from [HuggingFaceFW finewiki dataset](https://huggingface.co/datasets/HuggingFaceFW/finewiki) and will be filtered so that each Wikipedia article is either rated as a "Good Articles" (GA) or "Featured Articles" (FA) by an editor, we hope that this will remove articles that might be incomplete or require additional editing. This filtering is inspired by [Conia et al. 2024](https://aclanthology.org/2024.naacl-long.442.pdf) whereby they found training on data from only "featured" and "good" articles performed similarly to training on the far larger Wikipedia articles that contained non-good and non-featured articles thus showing that training on smaller amounts of data is as affective and more efficient. The "Featured" and "Good" article can be defined differently for each Wikipedia language site as stated in the English site definition within the following [article](https://en.wikipedia.org/wiki/Wikipedia:Content_assessment). The list of **GA** and **FA** can be found at [the HuggingFace dataset ucrelnlp/wikipedia-ga-fa-ids](https://huggingface.co/datasets/ucrelnlp/wikipedia-ga-fa-ids).
 
 
-## Languages
+### Languages
 
-The languages that this repository covers and supports, of which this table is also available in machine readable format at [./data/languages.yaml](./data/languages.yaml) (languages that have the value of `True` for the key `training`). These languages have been selected based on semantic tagging support for the given language whereby in some cases setting up the semantic tagger for a given language can be difficult within a large scale tagging pipeline in addition some languages have very few to none **GA** or **FA** articles.
+The languages that this repository covers and supports, this table is also available in machine readable format at [./wikipedia_processing/data/usas_wikipedia_processing.yaml](./wikipedia_processing/data/usas_wikipedia_processing.yaml) (languages that have the value of `True` for the key `training`). These languages have been selected based on semantic tagging support for the given language and the number of **GA** and **FA** articles available for the given language.
 
 | Language | ISO 639-3 |
 |----------|-----------|
@@ -107,7 +109,7 @@ Each Wikipedia article from [HuggingFaceFW finewiki](https://huggingface.co/data
 * Apply exact and then MinHash de-duplication.
 * Sentence split using language specific sentence splitters (spaCy sentence splitters are installed when the processing script is running).
 * USAS semantic and when the tagger supports it MWE identification using [PyMUSAS Rule Based languages specific taggers](https://ucrel.github.io/pymusas/#rule-based) per sentence (The spaCy tokenizers, lemmatizers, and POS taggers as well as the PyMUSAS tagger are installed when the processing script is running).
-  * Each sentence has all leading and starting whitespace removed, any tokens identified as whitespace are kept as tokens but with no USAS tags, and all `PUNCT` tags are mapped onto `Z9` tags. If a `Z99` USAS tag (the unmatched tag) is produced by any of the rule based taggers this USAS tag is not kept, it is removed.
+  * Each sentence has all leading and trailing whitespace removed, any tokens identified as whitespace are kept as tokens but with no USAS tags, and all `PUNCT` tags are mapped onto `Z9` tags. If a `Z99` USAS tag (the unmatched tag) is produced by any of the rule based taggers this USAS tag is not kept, it is removed.
 
 The processed data will contain the following fields:
 * `text` - the processed article text.
@@ -161,6 +163,8 @@ By default the script runs each pipeline stage (reading, dedup, tagging, etc.) a
 
 Because of that chaining, `SlurmPipelineExecutor` submits every stage's job and then returns immediately — it does not poll Slurm for completion. So with `--executor slurm` this script itself exits as soon as all stages are submitted, well before the actual Slurm jobs finish; a clean exit (code 0) only means submission succeeded, not that processing has completed. Track real progress with `squeue`/`sacct` or by watching `logging_dir/`.
 
+The Slurm sbatch command help page can be found at; [https://slurm.schedmd.com/sbatch.html](https://slurm.schedmd.com/sbatch.html)
+
 `--slurm-partition` and `--slurm-time` are required when `--executor slurm` is set; every other `--slurm-*` option is optional and only used with `--executor slurm` (passing any of them with the default `--executor local` is an error).
 
 ``` bash
@@ -197,7 +201,7 @@ Within a single stage's job array:
 
 All languages can share a single Hub dataset repository so users can pick a language, by running the script once per language against the same `--hf-dataset-repo-id`. Each run writes into its own `data/<wikipedia_language_code>/{train,validation}/` path within the repo, so nothing is overwritten between languages.
 
-For the Hub Dataset Viewer to expose each language as a selectable config with its train/validation splits, add a `configs:` block to the dataset repository's own README (its "dataset card"), keyed by `wikipedia_language_code` for consistency with [data/languages.yaml](data/languages.yaml) and the CLI, e.g.:
+For the Hub Dataset Viewer to expose each language as a selectable config with its train/validation splits, add a `configs:` block to the dataset repository's own README (its "dataset card"), keyed by `wikipedia_language_code` for consistency with [./wikipedia_processing/data/usas_wikipedia_processing.yaml](./wikipedia_processing/data/usas_wikipedia_processing.yaml) and the CLI, e.g.:
 
 ```yaml
 configs:
@@ -207,12 +211,12 @@ configs:
         path: "data/da/train/*.parquet"
       - split: validation
         path: "data/da/validation/*.parquet"
-  - config_name: en
+  - config_name: nl
     data_files:
       - split: train
-        path: "data/en/train/*.parquet"
+        path: "data/nl/train/*.parquet"
       - split: validation
-        path: "data/en/validation/*.parquet"
+        path: "data/nl/validation/*.parquet"
 ```
 
 #### Running every training language at once
@@ -244,13 +248,6 @@ etc.) are forwarded verbatim to every language's invocation.
 # Preview the computed shard counts / -w / -t / commands without launching anything:
 uv run processing_scripts/run_all_training_languages.py ./log_data --dry-run \
     --executor slurm --slurm-partition compute --slurm-time 6:00:00
-
-python processing_scripts/run_all_training_languages.py ./log_data --executor slurm --slurm-partition cpu-6h --slurm-time 4:00:00 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --slurm-mem-per-cpu-gb 2 --slurm-venv-path /mnt/nfs/homes/mooreap1/wikipedia-USAS-processing/venv/bin/python --slurm-cpus-per-task 2
-
-python processing_scripts/run_all_training_languages.py ./log_data --executor slurm --slurm-partition cpu-48h --slurm-time 30:00:00 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --slurm-mem-per-cpu-gb 5 --slurm-venv-path /mnt/nfs/homes/mooreap1/wikipedia-USAS-processing/venv/bin/python --slurm-cpus-per-task 1 --max-workers-per-language 30 --max-tasks-per-language 30 --min-tasks-per-language 1 --languages-file ./usas_wikipedia_processing.yaml --slurm-sbatch-args "{\"nice\": 100}" --max-number-of-parallel-tasks 180 --shard-tasks-multiplier 1 --randomize-start-duration 65 --min-hash-threshold 0.85 --overwrite
-
-uv run processing_scripts/run_all_training_languages.py ./log_data --executor slurm --slurm-partition cpu-6h --slurm-time 4:00:00 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --slurm-mem-per-cpu-gb 2 --slurm-venv-path /mnt/nfs/homes/mooreap1/wikipedia-USAS-processing/venv/bin/python --slurm-cpus-per-task 2 --dry-run --slurm-sbatch-args "'{\"nice\": 100}'"
-
 
 # Real run, uploading every language to the same shared Hub repo:
 uv run processing_scripts/run_all_training_languages.py ./log_data \
@@ -324,6 +321,10 @@ uv run processing_scripts/deduplicate_wikipedia_dataset.py -l da --output-dir ./
 
 # Deduplicate every language and push the result back to the Hub:
 uv run processing_scripts/deduplicate_wikipedia_dataset.py --push
+
+# Deduplicate every language, ensures that either 20 documents or 10% of documents
+# are in the validation split, and push the result back to the Hub:
+uv run processing_scripts/deduplicate_wikipedia_dataset.py -p 10 --push
 ```
 
 Some options worth knowing about (run `--help` for the full list):
@@ -417,11 +418,15 @@ Some options worth knowing about (run `--help` for the full list):
 These commands were used to create the original [ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia](https://huggingface.co/datasets/ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia) datasets that was used in the journal paper;
 
 ``` bash
-python processing_scripts/run_all_training_languages.py ./log_data --executor slurm --slurm-partition cpu-48h --slurm-time 30:00:00 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --slurm-mem-per-cpu-gb 4 --slurm-venv-path /mnt/nfs/homes/mooreap1/wikipedia-USAS-processing/venv/bin/python --slurm-cpus-per-task 2 --max-workers-per-language 100 --max-tasks-per-language 30 --min-tasks-per-language 1 --languages-file ./usas_wikipedia_processing.yaml --slurm-sbatch-args "{\"nice\": 100}" --max-number-of-parallel-tasks 100 --shard-tasks-multiplier 3 --randomize-start-duration 65 --overwrite --min-hash-threshold 0.85
-uv run processing_scripts/deduplicate_wikipedia_dataset.py -e 0.4 --push
+# This was ran on a SLURM cluster whereby the python executable had this code base installed via `pip install .`
+python processing_scripts/run_all_training_languages.py ./log_data --executor slurm --slurm-partition cpu-48h --slurm-time 30:00:00 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --slurm-mem-per-cpu-gb 5 --slurm-venv-path /mnt/nfs/homes/mooreap1/wikipedia-USAS-processing/venv/bin/python --slurm-cpus-per-task 1 --max-workers-per-language 30 --max-tasks-per-language 30 --min-tasks-per-language 2 --languages-file ./usas_wikipedia_processing.yaml --slurm-sbatch-args "{\"nice\": 100}" --max-number-of-parallel-tasks 180 --shard-tasks-multiplier 1 --randomize-start-duration 65 --min-hash-threshold 0.85 --overwrite
+# This command was ran after all of the languages had been processed, it was ran locally not on the SLURM cluster.
+uv run processing_scripts/deduplicate_wikipedia_dataset.py -p 10 --push
 ```
 
-The first command used `python` rather than `uv` as we ran it on our SLURM cluster, in essence most of the time as we had a hard limit on the number of tasks that a user could submit to SLURM in one go (inclduing tasks that are scheduled but not running), we ended up running this command multiple times but processing different languages using `--languages-file ./usas_wikipedia_processing.yaml` file to state which languages ran via setting `training` to `False` for languages that we did not want to process data for. This command used 2 CPUs with 8GB of RAM in total per task which is more than enough for this processing setup.
+The first command used `python` rather than `uv` as we ran it on our SLURM cluster, in essence most of the time as we had a hard limit on the number of tasks that a user could submit to SLURM in one go (inclduing tasks that are scheduled but not running), we ended up running this command multiple times but processing different languages using `--languages-file ./usas_wikipedia_processing.yaml` file to state which languages ran via setting `training` to `False` for languages that we did not want to process data for. This command used 1 CPU with 5GB of RAM in total per task which is more than enough for this processing setup. Afterwards we ran the de-duplicating script locally and ensured that each language had either 10% or at most 20 of the articles as validation data whichever was lower.
+
+The README for the dataset that is used in the [HuggingFace Hub](https://huggingface.co/datasets/ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia) can be found at [./data/template_readmes/Multilingual_USAS_Labelled_Silver_Wikipedia.md](./data/template_readmes/Multilingual_USAS_Labelled_Silver_Wikipedia.md)
 
 <details>
 
