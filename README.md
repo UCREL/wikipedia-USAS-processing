@@ -391,6 +391,32 @@ Some options worth knowing about (run `--help` for the full list):
 
 </details>
 
+## Token count distribution
+
+[processing_scripts/token_count_distribution.py](processing_scripts/token_count_distribution.py) plots and tabulates the distribution of token counts per sentence and per article for a dataset already built and uploaded by `build_usas_wikipedia_dataset.py` (e.g. `ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia`) — like `dataset_statistics.py` above, it only reads the already-processed `train`/`validation` Parquet output, it does not re-run any of the filtering/tagging pipeline. For each language (from `--split`, default `train`) it produces:
+
+* A histogram (PNG) of tokens-per-sentence, and a separate histogram of tokens-per-article, each with every language overlaid as its own colored, density-normalized step curve on a shared log-scaled x-axis, so differently-sized corpora stay comparable by shape rather than raw count.
+* A quantile table (25/50/75/90/95/99%, plus the maximum observed count) for each granularity, one row per language plus a final `Macro Avg` row — the unweighted mean of each language's own values (equal weight per language, regardless of corpus size).
+
+It reads `HF_TOKEN` from the environment the same way as [HuggingFace Authentication](#huggingface-authentication) above, needed if `--hf-dataset-repo-id` is private.
+
+``` bash
+# Histograms + Markdown tables (printed to console) for every language in the default dataset's train split:
+uv run processing_scripts/token_count_distribution.py
+
+# Two languages, train + validation combined, tables exported as LaTeX:
+uv run processing_scripts/token_count_distribution.py -l da -l en --split all --format latex \
+    --output-table-sentences ./data/tables/sentence_quantiles.tex \
+    --output-table-articles ./data/tables/article_quantiles.tex
+```
+
+Some options worth knowing about (run `--help` for the full list):
+* `-l`/`--language` - restrict to specific language(s) (repeatable); defaults to every config found in `--hf-dataset-repo-id`.
+* `-s`/`--split` - `train` (default), `validation`, or `all` (combines both splits).
+* `-f`/`--format` - `markdown` (default) or `latex` for the quantile tables.
+* `--output-histogram-sentences`/`--output-histogram-articles` - PNG output paths for the two histograms (default under `data/plots/`).
+* `--output-table-sentences`/`--output-table-articles` - optional paths to write each quantile table to; defaults to printing to the console.
+
 ## Pipeline runtime and peak node usage
 
 [processing_scripts/report_pipeline_runtime_and_nodes.py](processing_scripts/report_pipeline_runtime_and_nodes.py) summarises, per language, how long a completed run of the pipeline took and how many compute nodes it could use in parallel. It reads the `logging_dir` that `build_usas_wikipedia_dataset.py` / `run_all_training_languages.py` wrote (`./log_data/` in the examples above) — it does not touch the dataset or re-run any processing. For each `log_data/<wikipedia_language_code>/` folder (the `driver/` folder is skipped) it derives:
@@ -532,6 +558,9 @@ uv run processing_scripts/report_pipeline_runtime_and_nodes.py ./log_data \
 # Dropped-document funnel as a LaTeX table:
 uv run processing_scripts/report_pipeline_document_funnel.py ./log_data \
     --view dropped --format latex --output-file ./data/tables/pipeline_funnel.tex --sort-by language
+
+# Article and Sentence token statistics
+uv run processing_scripts/token_count_distribution.py --split train --format latex --output-histogram-sentences data/plots/token_count_per_sentence_histogram.png --output-histogram-articles data/plots/token_count_per_article_histogram.png --output-table-sentences ./data/tables/token_count_per_sentence.tex --output-table-articles ./data/tables/token_count_per_article.tex
 
     
 # Print a table for every language in the default dataset:
