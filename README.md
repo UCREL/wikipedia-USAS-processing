@@ -529,9 +529,9 @@ The various dataset statistics that compliment this dataset can be generated usi
 uv run processing_scripts/report_pipeline_runtime_and_nodes.py ./log_data \
     --format latex --sort-by language --output-file ./data/tables/pipeline_runtime.tex
 
-# Surviving-document funnel as a LaTeX table:
+# Dropped-document funnel as a LaTeX table:
 uv run processing_scripts/report_pipeline_document_funnel.py ./log_data \
-    --view survived --format latex --output-file ./data/tables/pipeline_funnel.tex
+    --view dropped --format latex --output-file ./data/tables/pipeline_funnel.tex --sort-by language
 
     
 # Print a table for every language in the default dataset:
