@@ -121,7 +121,7 @@ The processed data will contain the following fields:
 * `start_end_sentence_character_indexes` - list of start and end character offsets for each sentence, e.g. `[[0, 10], [11, 15]]` the first sentence is between `text[0:10]`.
 * `tokens` - list of a list of tokens whereby the inner list represents the tokens for a given sentence, e.g. `tokens[0]` would contain all of the tokens in the first sentence.
 * `tags` - list of a list of a list of USAS tags that were predicted by the PyMUSAS Rule Based languages specific tagger. The inner list represents the most likely USAS tags for the given token, e.g. `tags[0][0]` will contain a list of most likely USAS tags for the first token in the first sentence, in most cases it will only contain one USAS tag. When it contains more than one USAS tag this represents a token in which the meaning is a combination of the given predicted USAS tags. Some tokens will contain no USAS tags as the Rule Based tagger cannot make prediction for all tokens. Tags within each group are de-duplicated after any `tag_mapper` renaming is applied.
-* `other_tags` - list of a list of a list of a list of USAS tags, one level deeper than `tags`, containing every other valid USAS tag group for a token that was **not** its most likely tag group, e.g. `other_tags[0][0]` will contain a list of the other valid USAS tag groups for the first token in the first sentence, and `other_tags[0][0][0]` the tags within the first of those groups. Keeping each group as its own inner list (rather than merging them together) preserves which tags PyMUSAS considered part of the same combined meaning. Most tokens will contain no other USAS tag groups, in which case the outer list is empty. As with `tags`, tags within each group are de-duplicated after any `tag_mapper` renaming is applied.
+* `other_tags` - list of a list of a list of a list of USAS tags, one level deeper than `tags`, containing every other valid USAS tag group for a token that was **not** its most likely tag group, e.g. `other_tags[0][0]` will contain a list of the other valid USAS tag groups for the first token in the first sentence, and `other_tags[0][0][0]` the tags within the first of those groups. Keeping each group as its own inner list (rather than merging them together) preserves which tags PyMUSAS considered part of the same combined meaning. Most tokens will contain no other USAS tag groups, in which case the outer list is empty. As with `tags`, tags within each group are de-duplicated after any `tag_mapper` renaming is applied. They are ordered by the most likely USAS tag group.
 * `mwes` - list of a list of MWE labels that were predicted by the PyMUSAS Rule Based languages specific tagger, these always relate to the most likely USAS tags. The MWE labels denote at the sentence level which tokens are MWEs, e.g. `mwes[0][0]` represent all of the MWE labels for the first token in the first sentence, if it contains `1` and `mwes[0][1]` also contains `1` then the first token and second token in the first sentence are a MWE. If more than one label occurs then MWEs are overlapping which should not be the case with PyMUSAS taggers. MWEs can be dis-continuous. The index of MWE labels always start at 1 and reset per sentence, e.g. the first sentence can contain a MWE label of `1` and so can the second sentence, but they will be different MWEs as MWEs are constrained to occur within a single sentence; they cannot span sentence boundaries.
 
 The final data is written as [zstd](https://github.com/facebook/zstd)-compressed [Parquet](https://parquet.apache.org/) files rather than JSONL, as Parquet gives better compression on the repetitive, deeply nested `tokens`/`tags`/`other_tags`/`mwes` fields and native [HuggingFace Hub Dataset Viewer](https://huggingface.co/docs/hub/en/datasets-viewer) support.
@@ -416,6 +416,34 @@ Some options worth knowing about (run `--help` for the full list):
 * `-f`/`--format` - `markdown` (default) or `latex` for the quantile tables.
 * `--output-histogram-sentences`/`--output-histogram-articles` - PNG output paths for the two histograms (default under `data/plots/`).
 * `--output-table-sentences`/`--output-table-articles` - optional paths to write each quantile table to; defaults to printing to the console.
+
+## USAS tag distribution
+
+[processing_scripts/usas_tag_distribution.py](processing_scripts/usas_tag_distribution.py) tabulates the distribution of individual USAS tags for a dataset already built and uploaded by `build_usas_wikipedia_dataset.py` (e.g. `ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia`) — like `dataset_statistics.py` above, it only reads the already-processed `train`/`validation` Parquet output, it does not re-run any of the filtering/tagging pipeline. Tags are counted from both the `tags` and `other_tags` columns, since both are positive labels when training (`other_tags` holds every other valid tag group PyMUSAS considered besides the most likely one in `tags`). For each language (from `--split`, default `train`) it produces three tables, each with one column per language plus a final `Macro Avg` column — the unweighted mean of each language's own percentages (equal weight per language, regardless of corpus size):
+
+* The full major tag (first character of a USAS tag, e.g. `A3` and `A1` are both major tag `A`) distribution.
+* The top `--top-bottom-count` most common individual tags.
+* The bottom `--top-bottom-count` least common individual tags.
+
+It reads `HF_TOKEN` from the environment the same way as [HuggingFace Authentication](#huggingface-authentication) above, needed if `--hf-dataset-repo-id` is private.
+
+``` bash
+# Markdown tables (printed to console) for every language in the default dataset's train split:
+uv run processing_scripts/usas_tag_distribution.py
+
+# Two languages, train + validation combined, top/bottom 5 tags, tables exported as LaTeX:
+uv run processing_scripts/usas_tag_distribution.py -l da -l en --split all --top-bottom-count 5 --format latex \
+    --output-table-major ./data/tables/major_tags.tex \
+    --output-table-top ./data/tables/top_tags.tex \
+    --output-table-bottom ./data/tables/bottom_tags.tex
+```
+
+Some options worth knowing about (run `--help` for the full list):
+* `-l`/`--language` - restrict to specific language(s) (repeatable); defaults to every config found in `--hf-dataset-repo-id`.
+* `-s`/`--split` - `train` (default), `validation`, or `all` (combines both splits).
+* `-n`/`--top-bottom-count` - number of most-common (top) and least-common (bottom) individual tags to report (default `10`).
+* `-f`/`--format` - `markdown` (default) or `latex` for the distribution tables.
+* `--output-table-major`/`--output-table-top`/`--output-table-bottom` - optional paths to write each distribution table to; defaults to printing to the console.
 
 ## Pipeline runtime and peak node usage
 
