@@ -8,10 +8,10 @@ of tokens per sentence and the number of tokens per article, then:
   tokens-per-article), with every language overlaid as its own colored,
   density-normalized step curve on a shared log-scaled x-axis, so
   differently-sized corpora remain comparable by shape.
-* Renders one quantile table per granularity (25/50/75/90/95/99%), one row
-  per language, plus a "Macro Avg" row -- the unweighted mean of each
-  language's own quantile values (equal weight per language, regardless of
-  corpus size), as either a Markdown or LaTeX table.
+* Renders one quantile table per granularity (25/50/75/90/95/99%, plus the
+  maximum), one row per language, plus a "Macro Avg" row -- the unweighted
+  mean of each language's own values (equal weight per language, regardless
+  of corpus size), as either a Markdown or LaTeX table.
 """
 
 import dataclasses
@@ -38,6 +38,7 @@ from wikipedia_processing.utils import (
 
 QUANTILES: tuple[float, ...] = (0.25, 0.50, 0.75, 0.90, 0.95, 0.99)
 QUANTILE_COLUMN_LABELS: tuple[str, ...] = ("P25", "P50", "P75", "P90", "P95", "P99")
+SUMMARY_COLUMN_LABELS: tuple[str, ...] = (*QUANTILE_COLUMN_LABELS, "Max")
 
 # Fixed categorical slots from the project's validated data-viz palette,
 # assigned by language identity (not by selection order) so a color never
@@ -134,33 +135,34 @@ def compute_token_counts(dataset: Dataset) -> TokenCounts:
     return TokenCounts(sentence_token_counts, article_token_counts)
 
 
-def quantiles_row(counts: list[int]) -> list[float]:
-    """Compute the `QUANTILES` of a list of counts, rounded to one decimal place.
+def summary_row(counts: list[int]) -> list[float]:
+    """Compute the `QUANTILES` plus the maximum of a list of counts, rounded to one decimal place.
 
     Args:
         counts: The counts to summarize.
 
     Returns:
-        One value per entry in `QUANTILES`, in the same order. All zeros if
-        `counts` is empty.
+        One value per entry in `SUMMARY_COLUMN_LABELS` (each of `QUANTILES`,
+        then the maximum), in that order. All zeros if `counts` is empty.
 
     Examples:
-        >>> quantiles_row(list(range(101)))
-        [25.0, 50.0, 75.0, 90.0, 95.0, 99.0]
-        >>> quantiles_row([])
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        >>> summary_row(list(range(101)))
+        [25.0, 50.0, 75.0, 90.0, 95.0, 99.0, 100.0]
+        >>> summary_row([])
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     """
     if not counts:
-        return [0.0] * len(QUANTILES)
-    values = np.quantile(np.asarray(counts), QUANTILES)
-    return [round(float(value), 1) for value in values]
+        return [0.0] * len(SUMMARY_COLUMN_LABELS)
+    quantile_values = np.quantile(np.asarray(counts), QUANTILES)
+    return [round(float(value), 1) for value in quantile_values] + [round(float(max(counts)), 1)]
 
 
 def build_quantile_table_rows(counts_by_language: dict[str, list[int]]) -> tuple[list[str], list[list[str]]]:
     """Build headers and string rows for a per-language quantile table.
 
-    Languages are sorted by display name. A final "Macro Avg" row holds the
-    unweighted, column-wise mean of each language's own quantile values --
+    Languages are sorted by display name, with a trailing "Max" column
+    holding each language's largest observed count. A final "Macro Avg" row
+    holds the unweighted, column-wise mean of each language's own values --
     equal weight per language, regardless of how much data it contributed
     (as opposed to a "micro" average, which would pool every language's raw
     counts before computing quantiles).
@@ -176,23 +178,23 @@ def build_quantile_table_rows(counts_by_language: dict[str, list[int]]) -> tuple
     Examples:
         >>> headers, rows = build_quantile_table_rows({"en": list(range(101)), "nl": list(range(101))})
         >>> headers
-        ['Language', 'P25', 'P50', 'P75', 'P90', 'P95', 'P99']
+        ['Language', 'P25', 'P50', 'P75', 'P90', 'P95', 'P99', 'Max']
         >>> rows[0]
-        ['Dutch', '25.0', '50.0', '75.0', '90.0', '95.0', '99.0']
+        ['Dutch', '25.0', '50.0', '75.0', '90.0', '95.0', '99.0', '100.0']
         >>> rows[-1]
-        ['Macro Avg', '25.0', '50.0', '75.0', '90.0', '95.0', '99.0']
+        ['Macro Avg', '25.0', '50.0', '75.0', '90.0', '95.0', '99.0', '100.0']
     """
-    headers = ["Language", *QUANTILE_COLUMN_LABELS]
+    headers = ["Language", *SUMMARY_COLUMN_LABELS]
     rows: list[list[str]] = []
-    per_language_quantiles: list[list[float]] = []
+    per_language_summaries: list[list[float]] = []
 
     for code in sorted(counts_by_language, key=language_display_name):
-        quantiles = quantiles_row(counts_by_language[code])
-        per_language_quantiles.append(quantiles)
-        rows.append([language_display_name(code), *(f"{value:,.1f}" for value in quantiles)])
+        summary = summary_row(counts_by_language[code])
+        per_language_summaries.append(summary)
+        rows.append([language_display_name(code), *(f"{value:,.1f}" for value in summary)])
 
-    if per_language_quantiles:
-        macro_average = [sum(column) / len(column) for column in zip(*per_language_quantiles)]
+    if per_language_summaries:
+        macro_average = [sum(column) / len(column) for column in zip(*per_language_summaries)]
         rows.append(["Macro Avg", *(f"{value:,.1f}" for value in macro_average)])
 
     return headers, rows
@@ -393,7 +395,7 @@ def main(
     `--language`), collects token counts from `--split` and renders two
     histograms (tokens-per-sentence, tokens-per-article -- every language
     overlaid as its own colored curve) plus two quantile tables (25/50/75/
-    90/95/99%, one row per language, plus a "Macro Avg" row).
+    90/95/99% and the maximum, one row per language, plus a "Macro Avg" row).
 
     Reads `HF_TOKEN` from the environment (e.g. via a `.env` file, loaded
     with `python-dotenv`) to authenticate with the Hub, which is required if
@@ -438,7 +440,7 @@ def main(
     plot_token_count_histogram(article_counts_by_language, "Tokens per article by language", "Tokens per article (log scale)", output_histogram_articles)
     rprint(f"Wrote histograms to {output_histogram_sentences!r} and {output_histogram_articles!r}")
 
-    alignments = ["left"] + ["right"] * len(QUANTILE_COLUMN_LABELS)
+    alignments = ["left"] + ["right"] * len(SUMMARY_COLUMN_LABELS)
 
     sentence_headers, sentence_rows = build_quantile_table_rows(sentence_counts_by_language)
     write_or_print_table(render_table(sentence_headers, sentence_rows, alignments, table_format), output_table_sentences, "tokens-per-sentence")
