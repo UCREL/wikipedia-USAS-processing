@@ -337,12 +337,13 @@ Some options worth knowing about (run `--help` for the full list):
 
 [processing_scripts/dataset_statistics.py](processing_scripts/dataset_statistics.py) reports per-language, per-split statistics for a dataset already built and uploaded by `build_usas_wikipedia_dataset.py` (e.g. `ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia`) — like `deduplicate_wikipedia_dataset.py` above, it only reads the already-processed `train`/`validation` Parquet output, it does not re-run any of the filtering/tagging pipeline. For each language's `train` and `validation` split, plus a `"Total"` language aggregating every language together (again broken down into `train`, `validation`, and the overall total), it reports:
 
-* Number of articles.
-* Average article size in tokens, and average number of sentences per article.
+* Number of articles and number of sentences.
 * Number of tokens.
-* Number of labelled tokens (tokens with at least one USAS tag) and Multi Tag Membership (%) — the percentage of labelled tokens that are "multi tag membership" tokens, i.e. tokens with more than one USAS tag, e.g. `tags[0][0]` is `["A3", "M6"]`; unlabelled tokens are excluded from this percentage.
-* Number of unique USAS tags.
-* Number of Multi-Word Expressions (MWEs).
+* Number of labelled tokens (tokens with at least one USAS tag) and Labels per Token — the average number of USAS tag labels per token, counting both the `tags` and `other_tags` columns (both are positive labels when training).
+* Multi Tag Membership (%) — the percentage of USAS tag labels that belong to a "multi tag membership" group. A "multi tag membership" group is any tag group — a labelled token's `tags` entry, or an individual group within its `other_tags` entry — that itself contains more than one USAS tag, e.g. `tags[0][0]` is `["A3", "M6"]`. Every tag within such a group counts towards both the numerator and the denominator (the total count of individual tag labels across `tags` and `other_tags`), so this always falls between 0% and 100%.
+* Number of unique USAS tags (from both `tags` and `other_tags`).
+* Number of Multi-Word Expressions (MWEs)
+* MWE Tokens (%) — the percentage of tokens that are part of at least one MWE. This can be higher than simply dividing the "Number of Multi-Word Expressions" by the "Number of tokens" as each MWE contains more than one token thus each of those tokens in the MWE count towards the MWE token count.
 
 It reads `HF_TOKEN` from the environment the same way as [HuggingFace Authentication](#huggingface-authentication) above (via `.env`/`python-dotenv`), needed if `--hf-dataset-repo-id` is private.
 
@@ -364,29 +365,29 @@ Some options worth knowing about (run `--help` for the full list):
 <summary>Initial Dataset Statistics</summary>
 
 ``` bash
-┏━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
-┃ Language ┃ Split      ┃ Articles ┃ Avg. Tokens / Article ┃ Avg. Sentences / Article ┃ Tokens      ┃ Labelled Tokens ┃ Multi Tag Membership (%) ┃ Unique Tags ┃ MWEs       ┃
-┡━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
-│ da       │ train      │ 177      │ 7,739.73              │ 371.74                   │ 1,369,932   │ 871,407         │ 7.48                     │ 210         │ 35,083     │
-│ da       │ validation │ 10       │ 4,621.00              │ 232.20                   │ 46,210      │ 28,562          │ 6.70                     │ 201         │ 1,084      │
-│ nl       │ train      │ 368      │ 7,287.37              │ 417.04                   │ 2,681,753   │ 1,513,916       │ 3.81                     │ 204         │ 0          │
-│ nl       │ validation │ 10       │ 7,743.40              │ 468.70                   │ 77,434      │ 43,976          │ 3.96                     │ 195         │ 0          │
-│ fi       │ train      │ 855      │ 3,964.76              │ 255.59                   │ 3,389,867   │ 1,992,394       │ 11.64                    │ 207         │ 0          │
-│ fi       │ validation │ 10       │ 3,843.10              │ 254.10                   │ 38,431      │ 22,524          │ 11.81                    │ 200         │ 0          │
-│ it       │ train      │ 1,145    │ 8,342.54              │ 289.94                   │ 9,552,206   │ 6,641,591       │ 4.48                     │ 214         │ 94,621     │
-│ it       │ validation │ 16       │ 5,469.00              │ 173.94                   │ 87,504      │ 63,275          │ 4.84                     │ 208         │ 889        │
-│ pt       │ train      │ 3,456    │ 5,156.83              │ 220.26                   │ 17,821,992  │ 11,546,969      │ 6.44                     │ 210         │ 132,634    │
-│ pt       │ validation │ 12       │ 5,304.92              │ 201.75                   │ 63,659      │ 41,313          │ 6.67                     │ 202         │ 495        │
-│ es       │ train      │ 4,573    │ 6,587.80              │ 200.96                   │ 30,126,019  │ 20,557,991      │ 0.61                     │ 214         │ 66,928     │
-│ es       │ validation │ 8        │ 2,899.50              │ 95.75                    │ 23,196      │ 16,397          │ 0.61                     │ 203         │ 37         │
-│ zh       │ train      │ 2,787    │ 5,539.20              │ 240.26                   │ 15,437,755  │ 7,058,881       │ 6.02                     │ 212         │ 47,474     │
-│ zh       │ validation │ 20       │ 8,739.45              │ 377.55                   │ 174,789     │ 72,346          │ 5.84                     │ 207         │ 442        │
-│ en       │ train      │ 49,195   │ 3,714.85              │ 145.04                   │ 182,752,078 │ 145,924,630     │ 4.96                     │ 215         │ 13,872,660 │
-│ en       │ validation │ 20       │ 4,954.95              │ 176.30                   │ 99,099      │ 73,536          │ 4.86                     │ 208         │ 7,858      │
-│ Total    │ train      │ 62,556   │ 4,206.34              │ 163.93                   │ 263,131,602 │ 196,107,779     │ 4.68                     │ 220         │ 14,249,400 │
-│ Total    │ validation │ 106      │ 5,757.75              │ 250.92                   │ 610,322     │ 361,929         │ 5.53                     │ 220         │ 10,805     │
-│ Total    │ total      │ 62,662   │ 4,208.96              │ 164.08                   │ 263,741,924 │ 196,469,708     │ 4.68                     │ 220         │ 14,260,205 │
-└──────────┴────────────┴──────────┴───────────────────────┴──────────────────────────┴─────────────┴─────────────────┴──────────────────────────┴─────────────┴────────────┘
+┏━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Language ┃ Split      ┃ Articles ┃ Sentences  ┃ Tokens      ┃ Labelled Tokens ┃ Labels per Token ┃ Multi Tag Membership (%) ┃ Unique Tags ┃ MWEs       ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ da       │ train      │ 168      │ 61,844     │ 1,278,316   │ 968,246         │ 1.28             │ 13.42                    │ 213         │ 32,799     │
+│ da       │ validation │ 19       │ 6,276      │ 137,826     │ 102,048         │ 1.24             │ 13.37                    │ 211         │ 3,368      │
+│ nl       │ train      │ 358      │ 149,321    │ 2,598,904   │ 1,742,614       │ 1.59             │ 10.87                    │ 211         │ 0          │
+│ nl       │ validation │ 20       │ 8,838      │ 160,283     │ 110,421         │ 1.65             │ 11.38                    │ 211         │ 0          │
+│ fi       │ train      │ 845      │ 216,268    │ 3,356,477   │ 2,453,584       │ 1.35             │ 16.21                    │ 209         │ 0          │
+│ fi       │ validation │ 20       │ 4,811      │ 71,784      │ 53,080          │ 1.35             │ 12.95                    │ 207         │ 0          │
+│ it       │ train      │ 1,141    │ 329,486    │ 9,485,288   │ 7,776,400       │ 1.67             │ 11.99                    │ 219         │ 93,891     │
+│ it       │ validation │ 20       │ 5,275      │ 154,401     │ 127,142         │ 1.74             │ 12.83                    │ 216         │ 1,619      │
+│ pt       │ train      │ 3,449    │ 759,519    │ 17,784,412  │ 13,794,906      │ 2.16             │ 15.24                    │ 218         │ 132,460    │
+│ pt       │ validation │ 20       │ 4,141      │ 101,852     │ 79,709          │ 2.15             │ 16.67                    │ 215         │ 673        │
+│ es       │ train      │ 4,561    │ 916,583    │ 30,044,160  │ 24,077,524      │ 1.52             │ 1.03                     │ 219         │ 66,717     │
+│ es       │ validation │ 20       │ 3,214      │ 105,968     │ 86,034          │ 1.55             │ 1.13                     │ 219         │ 249        │
+│ zh       │ train      │ 2,787    │ 669,866    │ 15,463,490  │ 10,010,207      │ 2.90             │ 21.12                    │ 215         │ 47,444     │
+│ zh       │ validation │ 20       │ 7,280      │ 149,054     │ 100,396         │ 3.05             │ 22.01                    │ 214         │ 472        │
+│ en       │ train      │ 49,198   │ 7,134,060  │ 182,734,142 │ 170,029,880     │ 1.68             │ 11.10                    │ 217         │ 13,784,886 │
+│ en       │ validation │ 20       │ 4,267      │ 105,986     │ 98,782          │ 1.64             │ 11.05                    │ 212         │ 7,990      │
+│ Total    │ train      │ 62,507   │ 10,236,947 │ 262,745,189 │ 230,853,361     │ 1.76             │ 11.51                    │ 220         │ 14,158,197 │
+│ Total    │ validation │ 159      │ 44,102     │ 987,154     │ 757,612         │ 1.84             │ 14.21                    │ 220         │ 14,371     │
+│ Total    │ total      │ 62,666   │ 10,281,049 │ 263,732,343 │ 231,610,973     │ 1.76             │ 11.52                    │ 220         │ 14,172,568 │
+└──────────┴────────────┴──────────┴────────────┴─────────────┴─────────────────┴──────────────────┴──────────────────────────┴─────────────┴────────────┘
 ```
 
 </details>
@@ -592,7 +593,7 @@ uv run processing_scripts/token_count_distribution.py --split train --format lat
 
     
 # Print a table for every language in the default dataset:
-uv run processing_scripts/dataset_statistics.py
+uv run processing_scripts/dataset_statistics.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --hf-dataset-revision "main" --output-latex ./data/tables/overall_dataset_statistics.tex
 
 ```
 
