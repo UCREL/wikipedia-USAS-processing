@@ -23,18 +23,23 @@ COLUMN_LABELS = {
     "language": "Language",
     "split": "Split",
     "number_of_articles": "Articles",
-    "number_of_sentences": "Sentences",
-    "number_of_tokens": "Tokens",
-    "number_of_labelled_tokens": "Labelled Tokens",
+    "number_of_sentences": "Sentences (M)",
+    "number_of_tokens": "Tokens (M)",
+    "number_of_labelled_tokens": "Labelled Tokens (M)",
     "labels_per_token": "Labels per Token",
     "multi_tag_membership_percentage": "Multi Tag Membership (%)",
     "number_of_unique_tags": "Unique Tags",
-    "number_of_mwes": "MWEs",
+    "number_of_mwes": "MWEs (M)",
     "mwe_token_percentage": "MWE Tokens (%)",
 }
 COLUMNS = tuple(COLUMN_LABELS)
 
+# Columns whose value is expressed in millions (rounded to 3 decimal places)
+# rather than as a raw count.
+MILLION_SCALED_COLUMNS = frozenset({"number_of_sentences", "number_of_tokens", "number_of_labelled_tokens", "number_of_mwes"})
+
 WikipediaLanguageCode = Enum("WikipediaLanguageCode", [(value, value) for value in get_valid_usas_language_processing_wikipedia_codes()], type=str)
+ColumnName = Enum("ColumnName", [(value, value) for value in COLUMNS], type=str)
 
 
 @dataclasses.dataclass
@@ -284,32 +289,44 @@ def statistics_row(language: str, split: str, statistics: DatasetStatistics) -> 
 
     Returns:
         A dict of column name (matching `COLUMNS`) to formatted value,
-        suitable for a `rich.table.Table` row or a CSV row.
+        suitable for a `rich.table.Table` row or a CSV row. The columns in
+        `MILLION_SCALED_COLUMNS` (sentences, tokens, labelled tokens, MWEs)
+        are expressed in millions, rounded to 3 decimal places, rather than
+        as raw counts.
+
+    Examples:
+        >>> stats = DatasetStatistics(number_of_sentences=2_000_000, number_of_tokens=5_000_000, number_of_labelled_tokens=4_500_000, number_of_mwes=1_500_000)
+        >>> row = statistics_row("English", "train", stats)
+        >>> row["number_of_sentences"], row["number_of_tokens"], row["number_of_labelled_tokens"], row["number_of_mwes"]
+        (2.0, 5.0, 4.5, 1.5)
     """
     return {
         "language": language,
         "split": split,
         "number_of_articles": statistics.number_of_articles,
-        "number_of_sentences": statistics.number_of_sentences,
-        "number_of_tokens": statistics.number_of_tokens,
-        "number_of_labelled_tokens": statistics.number_of_labelled_tokens,
+        "number_of_sentences": round(statistics.number_of_sentences / 1_000_000, 3),
+        "number_of_tokens": round(statistics.number_of_tokens / 1_000_000, 3),
+        "number_of_labelled_tokens": round(statistics.number_of_labelled_tokens / 1_000_000, 3),
         "labels_per_token": round(statistics.labels_per_token, 2),
         "multi_tag_membership_percentage": round(statistics.multi_tag_membership_percentage, 2),
         "number_of_unique_tags": statistics.number_of_unique_tags,
-        "number_of_mwes": statistics.number_of_mwes,
+        "number_of_mwes": round(statistics.number_of_mwes / 1_000_000, 3),
         "mwe_token_percentage": round(statistics.mwe_token_percentage, 2),
     }
 
 
-def format_row_value(value: str | int | float) -> str:
+def format_row_value(value: str | int | float, decimal_places: int = 2) -> str:
     """Format a single row value for table display, adding `,` thousands separators to numbers.
 
     Args:
         value: The value to format, as produced by `statistics_row`.
+        decimal_places: Number of decimal places to use when `value` is a
+            float. Defaults to 2.
 
     Returns:
         `value` unchanged if it is a string, otherwise formatted with `,`
-        thousands separators (and, for floats, two decimal places).
+        thousands separators (and, for floats, `decimal_places` decimal
+        places).
 
     Examples:
         >>> format_row_value("da")
@@ -318,14 +335,34 @@ def format_row_value(value: str | int | float) -> str:
         '1,369,932'
         >>> format_row_value(7739.7288)
         '7,739.73'
+        >>> format_row_value(7739.7288, decimal_places=3)
+        '7,739.729'
     """
     match value:
         case int():
             return f"{value:,}"
         case float():
-            return f"{value:,.2f}"
+            return f"{value:,.{decimal_places}f}"
         case _:
             return str(value)
+
+
+def decimal_places_for_column(column: str) -> int:
+    """Return how many decimal places a column's float values should be shown with.
+
+    Args:
+        column: A column name, matching `COLUMNS`.
+
+    Returns:
+        3 for a column in `MILLION_SCALED_COLUMNS`, otherwise 2.
+
+    Examples:
+        >>> decimal_places_for_column("number_of_tokens")
+        3
+        >>> decimal_places_for_column("labels_per_token")
+        2
+    """
+    return 3 if column in MILLION_SCALED_COLUMNS else 2
 
 
 def escape_latex(text: str) -> str:
@@ -388,7 +425,7 @@ def rows_to_latex(rows: list[dict[str, str | int | float]], columns: tuple[str, 
         r"\midrule",
     ]
     for row in rows:
-        lines.append(" & ".join(escape_latex(format_row_value(row[column])) for column in columns) + r" \\")
+        lines.append(" & ".join(escape_latex(format_row_value(row[column], decimal_places_for_column(column))) for column in columns) + r" \\")
     lines.append(r"\bottomrule")
     lines.append(r"\end{tabular}")
     return "\n".join(lines)
@@ -400,6 +437,7 @@ def main(
     hf_dataset_revision: Annotated[str | None, typer.Option("--hf-dataset-revision", help="Branch (or other revision) of the Hub dataset repo to read. Defaults to the repo's default branch.")] = None,
     output_csv: Annotated[Path | None, typer.Option("--output-csv", help="Optional path to also write the statistics table to as a CSV file.")] = None,
     output_latex: Annotated[Path | None, typer.Option("--output-latex", help="Optional path to also write the statistics table to as a LaTeX tabular environment.")] = None,
+    exclude_columns: Annotated[list[ColumnName] | None, typer.Option("-x", "--exclude-column", help="Column(s) to omit from the output table, CSV, and LaTeX. Repeatable.")] = None,
 ) -> None:
     """Report per-language, per-split, and total statistics for the Multilingual USAS Wikipedia dataset.
 
@@ -407,16 +445,21 @@ def main(
     `--language`), loads the `train` and `validation` splits and reports,
     for each split: the number of articles, number of sentences, number of
     tokens, number of labelled tokens (tokens with at least one USAS tag),
-    labels per token (the average number of USAS tag labels per token,
-    across both the `tags` and `other_tags` columns), Multi Tag Membership
-    (%) (the percentage of USAS tag labels that belong to a "multi tag
-    membership" group -- a labelled token's `tags` entry, or an individual
-    `other_tags` group, that itself contains more than one USAS tag),
-    number of unique USAS tags (from both `tags` and `other_tags`), number
-    of Multi-Word Expressions (MWEs), and MWE Tokens (%) (the percentage of
-    tokens that are part of at least one MWE). A final `"Total"` language
-    aggregates every language together, broken down into `train`,
-    `validation`, and the overall total.
+    and number of Multi-Word Expressions (MWEs) -- sentences, tokens,
+    labelled tokens, and MWEs are all expressed in millions, rounded to 3
+    decimal places -- labels per token (the average number of USAS tag
+    labels per token, across both the `tags` and `other_tags` columns),
+    Multi Tag Membership (%) (the percentage of USAS tag labels that belong
+    to a "multi tag membership" group -- a labelled token's `tags` entry, or
+    an individual `other_tags` group, that itself contains more than one
+    USAS tag), number of unique USAS tags (from both `tags` and
+    `other_tags`), and MWE Tokens (%) (the percentage of tokens that are
+    part of at least one MWE). Each
+    language is shown by its full display name (e.g. "Danish", via
+    `language_display_name`) rather than its Wikipedia code, and rows are
+    sorted by that name. A final `"Total"` language aggregates every
+    language together, broken down into `train`, `validation`, and the
+    overall total.
 
     Reads `HF_TOKEN` from the environment (e.g. via a `.env` file, loaded
     with `python-dotenv`) to authenticate with the Hub, which is required if
@@ -427,9 +470,11 @@ def main(
 
         $ uv run processing_scripts/dataset_statistics.py
 
-        Report statistics for a single language and also save to CSV and LaTeX:
+        Report statistics for a single language, omitting the MWE columns,
+        and also save to CSV and LaTeX:
 
         $ uv run processing_scripts/dataset_statistics.py -l da \\
+              -x number_of_mwes -x mwe_token_percentage \\
               --output-csv ./stats.csv --output-latex ./stats.tex
     """
     load_dotenv()
@@ -438,6 +483,9 @@ def main(
     wikipedia_language_codes = [language.value for language in languages] if languages else get_dataset_config_names(hf_dataset_repo_id, revision=hf_dataset_revision, token=hf_token)
     wikipedia_language_codes = sorted(wikipedia_language_codes, key=language_display_name)
 
+    excluded_columns = {column.value for column in exclude_columns} if exclude_columns else set()
+    columns_to_include = tuple(column for column in COLUMNS if column not in excluded_columns)
+
     rows: list[dict[str, str | int | float]] = []
     overall_by_split: dict[str, DatasetStatistics] = {split: DatasetStatistics() for split in DATASET_SPLITS}
 
@@ -445,7 +493,7 @@ def main(
         for split in DATASET_SPLITS:
             dataset = load_dataset(hf_dataset_repo_id, wikipedia_language_code, split=split, revision=hf_dataset_revision, token=hf_token)
             statistics = compute_split_statistics(dataset)
-            rows.append(statistics_row(wikipedia_language_code, split, statistics))
+            rows.append(statistics_row(language_display_name(wikipedia_language_code), split, statistics))
             overall_by_split[split] = overall_by_split[split].merged_with(statistics)
 
     for split in DATASET_SPLITS:
@@ -454,21 +502,21 @@ def main(
     rows.append(statistics_row("Total", "total", overall_total))
 
     table = Table(title="Multilingual USAS Wikipedia dataset statistics")
-    for column in COLUMNS:
+    for column in columns_to_include:
         table.add_column(COLUMN_LABELS[column])
     for row in rows:
-        table.add_row(*(format_row_value(row[column]) for column in COLUMNS))
+        table.add_row(*(format_row_value(row[column], decimal_places_for_column(column)) for column in columns_to_include))
     rprint(table)
 
     if output_csv is not None:
         with output_csv.open("w", newline="") as csv_file:
-            writer = csv.DictWriter(csv_file, fieldnames=list(COLUMNS))
+            writer = csv.DictWriter(csv_file, fieldnames=list(columns_to_include), extrasaction="ignore")
             writer.writeheader()
             writer.writerows(rows)
         rprint(f"Wrote statistics to {output_csv!r}")
 
     if output_latex is not None:
-        output_latex.write_text(rows_to_latex(rows, COLUMNS, COLUMN_LABELS) + "\n", encoding="utf-8")
+        output_latex.write_text(rows_to_latex(rows, columns_to_include, COLUMN_LABELS) + "\n", encoding="utf-8")
         rprint(f"Wrote statistics to {output_latex!r}")
 
 

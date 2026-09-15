@@ -335,14 +335,14 @@ Some options worth knowing about (run `--help` for the full list):
 
 ## Dataset statistics
 
-[processing_scripts/dataset_statistics.py](processing_scripts/dataset_statistics.py) reports per-language, per-split statistics for a dataset already built and uploaded by `build_usas_wikipedia_dataset.py` (e.g. `ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia`) — like `deduplicate_wikipedia_dataset.py` above, it only reads the already-processed `train`/`validation` Parquet output, it does not re-run any of the filtering/tagging pipeline. For each language's `train` and `validation` split, plus a `"Total"` language aggregating every language together (again broken down into `train`, `validation`, and the overall total), it reports:
+[processing_scripts/dataset_statistics.py](processing_scripts/dataset_statistics.py) reports per-language, per-split statistics for a dataset already built and uploaded by `build_usas_wikipedia_dataset.py` (e.g. `ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia`) — like `deduplicate_wikipedia_dataset.py` above, it only reads the already-processed `train`/`validation` Parquet output, it does not re-run any of the filtering/tagging pipeline. Each language is shown by its full display name (e.g. "Danish", via `language_display_name`), sorted alphabetically. For each language's `train` and `validation` split, plus a `"Total"` language aggregating every language together (again broken down into `train`, `validation`, and the overall total), it reports:
 
-* Number of articles and number of sentences.
-* Number of tokens.
-* Number of labelled tokens (tokens with at least one USAS tag) and Labels per Token — the average number of USAS tag labels per token, counting both the `tags` and `other_tags` columns (both are positive labels when training).
+* Number of articles and number of sentences (Sentences (M), in millions, rounded to 3 decimal places).
+* Number of tokens (Tokens (M), in millions, rounded to 3 decimal places).
+* Number of labelled tokens (Labelled Tokens (M), tokens with at least one USAS tag, in millions rounded to 3 decimal places) and Labels per Token — the average number of USAS tag labels per token, counting both the `tags` and `other_tags` columns (both are positive labels when training).
 * Multi Tag Membership (%) — the percentage of USAS tag labels that belong to a "multi tag membership" group. A "multi tag membership" group is any tag group — a labelled token's `tags` entry, or an individual group within its `other_tags` entry — that itself contains more than one USAS tag, e.g. `tags[0][0]` is `["A3", "M6"]`. Every tag within such a group counts towards both the numerator and the denominator (the total count of individual tag labels across `tags` and `other_tags`), so this always falls between 0% and 100%.
 * Number of unique USAS tags (from both `tags` and `other_tags`).
-* Number of Multi-Word Expressions (MWEs)
+* Number of Multi-Word Expressions (MWEs (M), in millions, rounded to 3 decimal places).
 * MWE Tokens (%) — the percentage of tokens that are part of at least one MWE. This can be higher than simply dividing the "Number of Multi-Word Expressions" by the "Number of tokens" as each MWE contains more than one token thus each of those tokens in the MWE count towards the MWE token count.
 
 It reads `HF_TOKEN` from the environment the same way as [HuggingFace Authentication](#huggingface-authentication) above (via `.env`/`python-dotenv`), needed if `--hf-dataset-repo-id` is private.
@@ -351,12 +351,14 @@ It reads `HF_TOKEN` from the environment the same way as [HuggingFace Authentica
 # Print a table for every language in the default dataset:
 uv run processing_scripts/dataset_statistics.py
 
-# Report statistics for a single language and also export to CSV and LaTeX:
-uv run processing_scripts/dataset_statistics.py -l da --output-csv ./stats.csv --output-latex ./stats.tex
+# Report statistics for a single language, omitting the MWE columns, and also export to CSV and LaTeX:
+uv run processing_scripts/dataset_statistics.py -l da -x number_of_mwes -x mwe_token_percentage \
+    --output-csv ./stats.csv --output-latex ./stats.tex
 ```
 
 Some options worth knowing about (run `--help` for the full list):
 * `-l`/`--language` - restrict to specific language(s) (repeatable); defaults to every config found in `--hf-dataset-repo-id`.
+* `-x`/`--exclude-column` - omit specific column(s) (repeatable) from the table, CSV, and LaTeX output, e.g. `-x number_of_mwes`. Column names match the dict keys used internally (run `--help` to see the full list of valid values).
 * `--output-csv` - also write the table to a CSV file, with raw unformatted numeric values (unlike the console table, which adds `,` thousands separators).
 * `--output-latex` - also write the table as a LaTeX `tabular` environment (`booktabs`-style rules), with the same human-readable, escaped headers shown in the console table.
 
@@ -365,29 +367,29 @@ Some options worth knowing about (run `--help` for the full list):
 <summary>Initial Dataset Statistics</summary>
 
 ``` bash
-┏━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┓
-┃ Language ┃ Split      ┃ Articles ┃ Sentences  ┃ Tokens      ┃ Labelled Tokens ┃ Labels per Token ┃ Multi Tag Membership (%) ┃ Unique Tags ┃ MWEs       ┃ MWE Tokens (%) ┃
-┡━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
-│ zh       │ train      │ 2,787    │ 669,866    │ 15,463,490  │ 10,010,207      │ 2.90             │ 21.12                    │ 215         │ 47,444     │ 0.62           │
-│ zh       │ validation │ 20       │ 7,280      │ 149,054     │ 100,396         │ 3.05             │ 22.01                    │ 214         │ 472        │ 0.64           │
-│ da       │ train      │ 168      │ 61,844     │ 1,278,316   │ 968,246         │ 1.28             │ 13.42                    │ 213         │ 32,799     │ 6.14           │
-│ da       │ validation │ 19       │ 6,276      │ 137,826     │ 102,048         │ 1.24             │ 13.37                    │ 211         │ 3,368      │ 5.74           │
-│ nl       │ train      │ 358      │ 149,321    │ 2,598,904   │ 1,742,614       │ 1.59             │ 10.87                    │ 211         │ 0          │ 0.00           │
-│ nl       │ validation │ 20       │ 8,838      │ 160,283     │ 110,421         │ 1.65             │ 11.38                    │ 211         │ 0          │ 0.00           │
-│ en       │ train      │ 49,198   │ 7,134,060  │ 182,734,142 │ 170,029,880     │ 1.68             │ 11.10                    │ 217         │ 13,784,886 │ 17.57          │
-│ en       │ validation │ 20       │ 4,267      │ 105,986     │ 98,782          │ 1.64             │ 11.05                    │ 212         │ 7,990      │ 17.65          │
-│ fi       │ train      │ 845      │ 216,268    │ 3,356,477   │ 2,453,584       │ 1.35             │ 16.21                    │ 209         │ 0          │ 0.00           │
-│ fi       │ validation │ 20       │ 4,811      │ 71,784      │ 53,080          │ 1.35             │ 12.95                    │ 207         │ 0          │ 0.00           │
-│ it       │ train      │ 1,141    │ 329,486    │ 9,485,288   │ 7,776,400       │ 1.67             │ 11.99                    │ 219         │ 93,891     │ 2.13           │
-│ it       │ validation │ 20       │ 5,275      │ 154,401     │ 127,142         │ 1.74             │ 12.83                    │ 216         │ 1,619      │ 2.25           │
-│ pt       │ train      │ 3,449    │ 759,519    │ 17,784,412  │ 13,794,906      │ 2.16             │ 15.24                    │ 218         │ 132,460    │ 1.61           │
-│ pt       │ validation │ 20       │ 4,141      │ 101,852     │ 79,709          │ 2.15             │ 16.67                    │ 215         │ 673        │ 1.45           │
-│ es       │ train      │ 4,561    │ 916,583    │ 30,044,160  │ 24,077,524      │ 1.52             │ 1.03                     │ 219         │ 66,717     │ 0.47           │
-│ es       │ validation │ 20       │ 3,214      │ 105,968     │ 86,034          │ 1.55             │ 1.13                     │ 219         │ 249        │ 0.52           │
-│ Total    │ train      │ 62,507   │ 10,236,947 │ 262,745,189 │ 230,853,361     │ 1.76             │ 11.51                    │ 220         │ 14,158,197 │ 12.52          │
-│ Total    │ validation │ 159      │ 44,102     │ 987,154     │ 757,612         │ 1.84             │ 14.21                    │ 220         │ 14,371     │ 3.35           │
-│ Total    │ total      │ 62,666   │ 10,281,049 │ 263,732,343 │ 231,610,973     │ 1.76             │ 11.52                    │ 220         │ 14,172,568 │ 12.49          │
-└──────────┴────────────┴──────────┴────────────┴─────────────┴─────────────────┴──────────────────┴──────────────────────────┴─────────────┴────────────┴────────────────┘
+┏━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━┓
+┃ Language   ┃ Split      ┃ Articles ┃ Sentences (M) ┃ Tokens (M) ┃ Labelled Tokens (M) ┃ Labels per Token ┃ Multi Tag Membership (%) ┃ Unique Tags ┃ MWEs (M) ┃ MWE Tokens (%) ┃
+┡━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
+│ Chinese    │ train      │ 2,787    │ 0.670         │ 15.463     │ 10.010              │ 2.90             │ 21.12                    │ 215         │ 0.047    │ 0.62           │
+│ Chinese    │ validation │ 20       │ 0.007         │ 0.149      │ 0.100               │ 3.05             │ 22.01                    │ 214         │ 0.000    │ 0.64           │
+│ Danish     │ train      │ 168      │ 0.062         │ 1.278      │ 0.968               │ 1.28             │ 13.42                    │ 213         │ 0.033    │ 6.14           │
+│ Danish     │ validation │ 19       │ 0.006         │ 0.138      │ 0.102               │ 1.24             │ 13.37                    │ 211         │ 0.003    │ 5.74           │
+│ Dutch      │ train      │ 358      │ 0.149         │ 2.599      │ 1.743               │ 1.59             │ 10.87                    │ 211         │ 0.000    │ 0.00           │
+│ Dutch      │ validation │ 20       │ 0.009         │ 0.160      │ 0.110               │ 1.65             │ 11.38                    │ 211         │ 0.000    │ 0.00           │
+│ English    │ train      │ 49,198   │ 7.134         │ 182.734    │ 170.030             │ 1.68             │ 11.10                    │ 217         │ 13.785   │ 17.57          │
+│ English    │ validation │ 20       │ 0.004         │ 0.106      │ 0.099               │ 1.64             │ 11.05                    │ 212         │ 0.008    │ 17.65          │
+│ Finnish    │ train      │ 845      │ 0.216         │ 3.356      │ 2.454               │ 1.35             │ 16.21                    │ 209         │ 0.000    │ 0.00           │
+│ Finnish    │ validation │ 20       │ 0.005         │ 0.072      │ 0.053               │ 1.35             │ 12.95                    │ 207         │ 0.000    │ 0.00           │
+│ Italian    │ train      │ 1,141    │ 0.329         │ 9.485      │ 7.776               │ 1.67             │ 11.99                    │ 219         │ 0.094    │ 2.13           │
+│ Italian    │ validation │ 20       │ 0.005         │ 0.154      │ 0.127               │ 1.74             │ 12.83                    │ 216         │ 0.002    │ 2.25           │
+│ Portuguese │ train      │ 3,449    │ 0.760         │ 17.784     │ 13.795              │ 2.16             │ 15.24                    │ 218         │ 0.132    │ 1.61           │
+│ Portuguese │ validation │ 20       │ 0.004         │ 0.102      │ 0.080               │ 2.15             │ 16.67                    │ 215         │ 0.001    │ 1.45           │
+│ Spanish    │ train      │ 4,561    │ 0.917         │ 30.044     │ 24.078              │ 1.52             │ 1.03                     │ 219         │ 0.067    │ 0.47           │
+│ Spanish    │ validation │ 20       │ 0.003         │ 0.106      │ 0.086               │ 1.55             │ 1.13                     │ 219         │ 0.000    │ 0.52           │
+│ Total      │ train      │ 62,507   │ 10.237        │ 262.745    │ 230.853             │ 1.76             │ 11.51                    │ 220         │ 14.158   │ 12.52          │
+│ Total      │ validation │ 159      │ 0.044         │ 0.987      │ 0.758               │ 1.84             │ 14.21                    │ 220         │ 0.014    │ 3.35           │
+│ Total      │ total      │ 62,666   │ 10.281        │ 263.732    │ 231.611             │ 1.76             │ 11.52                    │ 220         │ 14.173   │ 12.49          │
+└────────────┴────────────┴──────────┴───────────────┴────────────┴─────────────────────┴──────────────────┴──────────────────────────┴─────────────┴──────────┴────────────────┘
 ```
 
 </details>
@@ -594,11 +596,12 @@ uv run processing_scripts/report_pipeline_document_funnel.py ./log_data \
 uv run processing_scripts/token_count_distribution.py --split train --format latex --output-histogram-sentences data/plots/token_count_per_sentence_histogram.png --output-histogram-articles data/plots/token_count_per_article_histogram.png --output-table-sentences ./data/tables/token_count_per_sentence.tex --output-table-articles ./data/tables/token_count_per_article.tex
 
     
-# Print a table for every language in the default dataset:
+# Overall dataset statistics
 uv run processing_scripts/dataset_statistics.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --hf-dataset-revision "main" --output-latex ./data/tables/overall_dataset_statistics.tex
 
-# Print the tag distribution
-
+# Tag distribution statistics
+uv run processing_scripts/usas_tag_distribution.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --hf-dataset-revision "main" --split all --top-bottom-count 5 --format latex --output-table-major ./data/tables/major_tag_distribution.tex --output-table-top ./data/tables/top_tags_distributi
+on.tex --output-table-bottom ./data/tables/bottom_tags_distribution.tex --output-table-summary ./data/tables/tag_frequency_summary.tex
 ```
 
 
