@@ -12,6 +12,8 @@ size):
 * The full major tag (first character of a USAS tag) distribution.
 * The top N and bottom N individual tags in the distribution, N configurable
   via the CLI.
+* A five-number summary (min, 25th/50th/75th percentile, max) of how
+  individual tags' percentages and raw counts are spread out.
 """
 
 import dataclasses
@@ -217,6 +219,117 @@ def rank_tags(macro_averages: dict[str, float], descending: bool = True) -> list
     return sorted(macro_averages, key=lambda tag: (-macro_averages[tag] if descending else macro_averages[tag], tag))
 
 
+def percentile(values: list[float], percentile_rank: float) -> float:
+    """Compute a percentile of a list of values by linear interpolation.
+
+    Args:
+        values: The values to summarize. Order does not matter.
+        percentile_rank: The percentile to compute, in the closed range
+            `[0, 100]`.
+
+    Returns:
+        The interpolated value at `percentile_rank`, or 0.0 if `values` is
+        empty.
+
+    Examples:
+        >>> percentile([10.0, 20.0, 30.0, 40.0], 50)
+        25.0
+        >>> percentile([10.0, 20.0, 30.0, 40.0], 25)
+        17.5
+        >>> percentile([], 50)
+        0.0
+    """
+    if not values:
+        return 0.0
+    sorted_values = sorted(values)
+    number_of_values = len(sorted_values)
+    if number_of_values == 1:
+        return sorted_values[0]
+    rank = percentile_rank / 100 * (number_of_values - 1)
+    lower_index = int(rank)
+    upper_index = min(lower_index + 1, number_of_values - 1)
+    fraction = rank - lower_index
+    return sorted_values[lower_index] + (sorted_values[upper_index] - sorted_values[lower_index]) * fraction
+
+
+TAG_SUMMARY_STATISTICS = ("Min", "P25", "P50", "P75", "Max")
+
+
+def five_number_summary(values: list[float]) -> dict[str, float]:
+    """Compute the min, 25th/50th/75th percentile, and max of a list of values.
+
+    Args:
+        values: The values to summarize. Order does not matter.
+
+    Returns:
+        Mapping with keys `"Min"`, `"P25"`, `"P50"`, `"P75"`, `"Max"`,
+        summarizing how `values` is spread out. All 0.0 if `values` is empty.
+
+    Examples:
+        >>> five_number_summary([10.0, 30.0, 20.0, 40.0])
+        {'Min': 10.0, 'P25': 17.5, 'P50': 25.0, 'P75': 32.5, 'Max': 40.0}
+        >>> five_number_summary([])
+        {'Min': 0.0, 'P25': 0.0, 'P50': 0.0, 'P75': 0.0, 'Max': 0.0}
+    """
+    if not values:
+        return dict.fromkeys(TAG_SUMMARY_STATISTICS, 0.0)
+    return {
+        "Min": min(values),
+        "P25": percentile(values, 25),
+        "P50": percentile(values, 50),
+        "P75": percentile(values, 75),
+        "Max": max(values),
+    }
+
+
+def build_tag_summary_rows(
+    percentage_summary_by_language: dict[str, dict[str, float]],
+    count_summary_by_language: dict[str, dict[str, float]],
+) -> tuple[list[str], list[list[str]]]:
+    """Build headers and string rows for the tag-frequency summary table.
+
+    Each cell combines a language's raw count value and its percentage
+    value for that statistic, e.g. `"120 (12.0%)"`.
+
+    Args:
+        percentage_summary_by_language: Mapping of Wikipedia language code
+            to that language's five-number tag-percentage summary, as
+            returned by `five_number_summary` over a language's
+            `tag_percentages` values.
+        count_summary_by_language: Mapping of Wikipedia language code to
+            that language's five-number tag-count summary, as returned by
+            `five_number_summary` over a language's raw `TagCounts.tag_counts`
+            values. Must have the same keys as `percentage_summary_by_language`.
+
+    Returns:
+        A `(headers, rows)` pair: one column per language (sorted by display
+        name), plus a trailing "Macro Avg" column (the unweighted mean of
+        each language's own count and percentage for that statistic); one
+        row per entry in `TAG_SUMMARY_STATISTICS`.
+
+    Examples:
+        >>> percentages = {"en": {"Min": 10.0, "P25": 20.0, "P50": 30.0, "P75": 40.0, "Max": 50.0}}
+        >>> counts = {"en": {"Min": 100.0, "P25": 200.0, "P50": 300.0, "P75": 400.0, "Max": 500.0}}
+        >>> headers, rows = build_tag_summary_rows(percentages, counts)
+        >>> headers
+        ['Statistic', 'English', 'Macro Avg']
+        >>> rows[0]
+        ['Min', '100 (10.0%)', '100 (10.0%)']
+    """
+    language_codes = sorted(percentage_summary_by_language, key=language_display_name)
+    headers = ["Statistic", *(language_display_name(code) for code in language_codes), "Macro Avg"]
+    rows: list[list[str]] = []
+    for statistic in TAG_SUMMARY_STATISTICS:
+        per_language_percentages = [percentage_summary_by_language[code][statistic] for code in language_codes]
+        per_language_counts = [count_summary_by_language[code][statistic] for code in language_codes]
+        macro_average_percentage = sum(per_language_percentages) / len(per_language_percentages) if per_language_percentages else 0.0
+        macro_average_count = sum(per_language_counts) / len(per_language_counts) if per_language_counts else 0.0
+        cells = [f"{count:,.0f} ({percentage:,.1f}%)" for count, percentage in zip(per_language_counts, per_language_percentages)]
+        cells.append(f"{macro_average_count:,.0f} ({macro_average_percentage:,.1f}%)")
+        rows.append([statistic, *cells])
+    return headers, rows
+
+
 def build_tag_distribution_rows(percentages_by_language: dict[str, dict[str, float]], tags: list[str]) -> tuple[list[str], list[list[str]]]:
     """Build headers and string rows for a tag distribution table.
 
@@ -391,20 +504,23 @@ def main(
     output_table_major: Annotated[Path | None, typer.Option(help="Optional path to write the major tag distribution table to. Defaults to printing to the console.")] = None,
     output_table_top: Annotated[Path | None, typer.Option(help="Optional path to write the top-tags distribution table to. Defaults to printing to the console.")] = None,
     output_table_bottom: Annotated[Path | None, typer.Option(help="Optional path to write the bottom-tags distribution table to. Defaults to printing to the console.")] = None,
+    output_table_summary: Annotated[Path | None, typer.Option(help="Optional path to write the tag-frequency summary table to. Defaults to printing to the console.")] = None,
 ) -> None:
     """Report per-language and macro-average USAS tag distributions.
 
     For every language config in `hf_dataset_repo_id` (or those given via
     `--language`), collects individual USAS tag occurrences from `--split`,
     counting both the `tags` and `other_tags` columns (both are positive
-    labels when training), then renders three distribution tables -- one row
-    per tag, one column per language plus a "Macro Avg" column (the
-    unweighted mean of each language's own percentage, equal weight per
-    language regardless of corpus size):
+    labels when training), then renders four distribution tables -- one row
+    per tag (or per summary statistic), one column per language plus a
+    "Macro Avg" column (the unweighted mean of each language's own value,
+    equal weight per language regardless of corpus size):
 
     * The full major tag (first character of a USAS tag) distribution.
     * The top `--top-bottom-count` most common individual tags.
     * The bottom `--top-bottom-count` least common individual tags.
+    * A five-number summary (min, 25th/50th/75th percentile, max) of how
+      individual tags' percentages and raw counts are spread out.
 
     Reads `HF_TOKEN` from the environment (e.g. via a `.env` file, loaded
     with `python-dotenv`) to authenticate with the Hub, which is required if
@@ -421,7 +537,8 @@ def main(
               --split all --top-bottom-count 5 --format latex \\
               --output-table-major data/tables/major_tags.tex \\
               --output-table-top data/tables/top_tags.tex \\
-              --output-table-bottom data/tables/bottom_tags.tex
+              --output-table-bottom data/tables/bottom_tags.tex \\
+              --output-table-summary data/tables/tag_summary.tex
     """
     load_dotenv()
     hf_token = os.environ.get("HF_TOKEN")
@@ -461,6 +578,11 @@ def main(
     bottom_tags = rank_tags(tag_macro_averages, descending=False)[:top_bottom_count]
     bottom_headers, bottom_rows = build_tag_distribution_rows(tag_percentages_by_language, bottom_tags)
     write_or_print_table(render_table(bottom_headers, bottom_rows, alignments, table_format), output_table_bottom, "bottom tags")
+
+    percentage_summary_by_language = {code: five_number_summary(list(percentages.values())) for code, percentages in tag_percentages_by_language.items()}
+    count_summary_by_language = {code: five_number_summary([float(count) for count in counts.tag_counts.values()]) for code, counts in tag_counts_by_language.items()}
+    summary_headers, summary_rows = build_tag_summary_rows(percentage_summary_by_language, count_summary_by_language)
+    write_or_print_table(render_table(summary_headers, summary_rows, alignments, table_format), output_table_summary, "tag-frequency summary")
 
 
 if __name__ == "__main__":

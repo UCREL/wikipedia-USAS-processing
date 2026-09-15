@@ -365,29 +365,29 @@ Some options worth knowing about (run `--help` for the full list):
 <summary>Initial Dataset Statistics</summary>
 
 ``` bash
-┏━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
-┃ Language ┃ Split      ┃ Articles ┃ Sentences  ┃ Tokens      ┃ Labelled Tokens ┃ Labels per Token ┃ Multi Tag Membership (%) ┃ Unique Tags ┃ MWEs       ┃
-┡━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
-│ da       │ train      │ 168      │ 61,844     │ 1,278,316   │ 968,246         │ 1.28             │ 13.42                    │ 213         │ 32,799     │
-│ da       │ validation │ 19       │ 6,276      │ 137,826     │ 102,048         │ 1.24             │ 13.37                    │ 211         │ 3,368      │
-│ nl       │ train      │ 358      │ 149,321    │ 2,598,904   │ 1,742,614       │ 1.59             │ 10.87                    │ 211         │ 0          │
-│ nl       │ validation │ 20       │ 8,838      │ 160,283     │ 110,421         │ 1.65             │ 11.38                    │ 211         │ 0          │
-│ fi       │ train      │ 845      │ 216,268    │ 3,356,477   │ 2,453,584       │ 1.35             │ 16.21                    │ 209         │ 0          │
-│ fi       │ validation │ 20       │ 4,811      │ 71,784      │ 53,080          │ 1.35             │ 12.95                    │ 207         │ 0          │
-│ it       │ train      │ 1,141    │ 329,486    │ 9,485,288   │ 7,776,400       │ 1.67             │ 11.99                    │ 219         │ 93,891     │
-│ it       │ validation │ 20       │ 5,275      │ 154,401     │ 127,142         │ 1.74             │ 12.83                    │ 216         │ 1,619      │
-│ pt       │ train      │ 3,449    │ 759,519    │ 17,784,412  │ 13,794,906      │ 2.16             │ 15.24                    │ 218         │ 132,460    │
-│ pt       │ validation │ 20       │ 4,141      │ 101,852     │ 79,709          │ 2.15             │ 16.67                    │ 215         │ 673        │
-│ es       │ train      │ 4,561    │ 916,583    │ 30,044,160  │ 24,077,524      │ 1.52             │ 1.03                     │ 219         │ 66,717     │
-│ es       │ validation │ 20       │ 3,214      │ 105,968     │ 86,034          │ 1.55             │ 1.13                     │ 219         │ 249        │
-│ zh       │ train      │ 2,787    │ 669,866    │ 15,463,490  │ 10,010,207      │ 2.90             │ 21.12                    │ 215         │ 47,444     │
-│ zh       │ validation │ 20       │ 7,280      │ 149,054     │ 100,396         │ 3.05             │ 22.01                    │ 214         │ 472        │
-│ en       │ train      │ 49,198   │ 7,134,060  │ 182,734,142 │ 170,029,880     │ 1.68             │ 11.10                    │ 217         │ 13,784,886 │
-│ en       │ validation │ 20       │ 4,267      │ 105,986     │ 98,782          │ 1.64             │ 11.05                    │ 212         │ 7,990      │
-│ Total    │ train      │ 62,507   │ 10,236,947 │ 262,745,189 │ 230,853,361     │ 1.76             │ 11.51                    │ 220         │ 14,158,197 │
-│ Total    │ validation │ 159      │ 44,102     │ 987,154     │ 757,612         │ 1.84             │ 14.21                    │ 220         │ 14,371     │
-│ Total    │ total      │ 62,666   │ 10,281,049 │ 263,732,343 │ 231,610,973     │ 1.76             │ 11.52                    │ 220         │ 14,172,568 │
-└──────────┴────────────┴──────────┴────────────┴─────────────┴─────────────────┴──────────────────┴──────────────────────────┴─────────────┴────────────┘
+┏━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┓
+┃ Language ┃ Split      ┃ Articles ┃ Sentences  ┃ Tokens      ┃ Labelled Tokens ┃ Labels per Token ┃ Multi Tag Membership (%) ┃ Unique Tags ┃ MWEs       ┃ MWE Tokens (%) ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
+│ zh       │ train      │ 2,787    │ 669,866    │ 15,463,490  │ 10,010,207      │ 2.90             │ 21.12                    │ 215         │ 47,444     │ 0.62           │
+│ zh       │ validation │ 20       │ 7,280      │ 149,054     │ 100,396         │ 3.05             │ 22.01                    │ 214         │ 472        │ 0.64           │
+│ da       │ train      │ 168      │ 61,844     │ 1,278,316   │ 968,246         │ 1.28             │ 13.42                    │ 213         │ 32,799     │ 6.14           │
+│ da       │ validation │ 19       │ 6,276      │ 137,826     │ 102,048         │ 1.24             │ 13.37                    │ 211         │ 3,368      │ 5.74           │
+│ nl       │ train      │ 358      │ 149,321    │ 2,598,904   │ 1,742,614       │ 1.59             │ 10.87                    │ 211         │ 0          │ 0.00           │
+│ nl       │ validation │ 20       │ 8,838      │ 160,283     │ 110,421         │ 1.65             │ 11.38                    │ 211         │ 0          │ 0.00           │
+│ en       │ train      │ 49,198   │ 7,134,060  │ 182,734,142 │ 170,029,880     │ 1.68             │ 11.10                    │ 217         │ 13,784,886 │ 17.57          │
+│ en       │ validation │ 20       │ 4,267      │ 105,986     │ 98,782          │ 1.64             │ 11.05                    │ 212         │ 7,990      │ 17.65          │
+│ fi       │ train      │ 845      │ 216,268    │ 3,356,477   │ 2,453,584       │ 1.35             │ 16.21                    │ 209         │ 0          │ 0.00           │
+│ fi       │ validation │ 20       │ 4,811      │ 71,784      │ 53,080          │ 1.35             │ 12.95                    │ 207         │ 0          │ 0.00           │
+│ it       │ train      │ 1,141    │ 329,486    │ 9,485,288   │ 7,776,400       │ 1.67             │ 11.99                    │ 219         │ 93,891     │ 2.13           │
+│ it       │ validation │ 20       │ 5,275      │ 154,401     │ 127,142         │ 1.74             │ 12.83                    │ 216         │ 1,619      │ 2.25           │
+│ pt       │ train      │ 3,449    │ 759,519    │ 17,784,412  │ 13,794,906      │ 2.16             │ 15.24                    │ 218         │ 132,460    │ 1.61           │
+│ pt       │ validation │ 20       │ 4,141      │ 101,852     │ 79,709          │ 2.15             │ 16.67                    │ 215         │ 673        │ 1.45           │
+│ es       │ train      │ 4,561    │ 916,583    │ 30,044,160  │ 24,077,524      │ 1.52             │ 1.03                     │ 219         │ 66,717     │ 0.47           │
+│ es       │ validation │ 20       │ 3,214      │ 105,968     │ 86,034          │ 1.55             │ 1.13                     │ 219         │ 249        │ 0.52           │
+│ Total    │ train      │ 62,507   │ 10,236,947 │ 262,745,189 │ 230,853,361     │ 1.76             │ 11.51                    │ 220         │ 14,158,197 │ 12.52          │
+│ Total    │ validation │ 159      │ 44,102     │ 987,154     │ 757,612         │ 1.84             │ 14.21                    │ 220         │ 14,371     │ 3.35           │
+│ Total    │ total      │ 62,666   │ 10,281,049 │ 263,732,343 │ 231,610,973     │ 1.76             │ 11.52                    │ 220         │ 14,172,568 │ 12.49          │
+└──────────┴────────────┴──────────┴────────────┴─────────────┴─────────────────┴──────────────────┴──────────────────────────┴─────────────┴────────────┴────────────────┘
 ```
 
 </details>
@@ -420,11 +420,12 @@ Some options worth knowing about (run `--help` for the full list):
 
 ## USAS tag distribution
 
-[processing_scripts/usas_tag_distribution.py](processing_scripts/usas_tag_distribution.py) tabulates the distribution of individual USAS tags for a dataset already built and uploaded by `build_usas_wikipedia_dataset.py` (e.g. `ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia`) — like `dataset_statistics.py` above, it only reads the already-processed `train`/`validation` Parquet output, it does not re-run any of the filtering/tagging pipeline. Tags are counted from both the `tags` and `other_tags` columns, since both are positive labels when training (`other_tags` holds every other valid tag group PyMUSAS considered besides the most likely one in `tags`). For each language (from `--split`, default `train`) it produces three tables, each with one column per language plus a final `Macro Avg` column — the unweighted mean of each language's own percentages (equal weight per language, regardless of corpus size):
+[processing_scripts/usas_tag_distribution.py](processing_scripts/usas_tag_distribution.py) tabulates the distribution of individual USAS tags for a dataset already built and uploaded by `build_usas_wikipedia_dataset.py` (e.g. `ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia`) — like `dataset_statistics.py` above, it only reads the already-processed `train`/`validation` Parquet output, it does not re-run any of the filtering/tagging pipeline. Tags are counted from both the `tags` and `other_tags` columns, since both are positive labels when training (`other_tags` holds every other valid tag group PyMUSAS considered besides the most likely one in `tags`). For each language (from `--split`, default `train`) it produces four tables, each with one column per language (sorted by language name via `language_display_name`) plus a final `Macro Avg` column — the unweighted mean of each language's own value (equal weight per language, regardless of corpus size):
 
 * The full major tag (first character of a USAS tag, e.g. `A3` and `A1` are both major tag `A`) distribution.
 * The top `--top-bottom-count` most common individual tags.
 * The bottom `--top-bottom-count` least common individual tags.
+* A five-number summary (`Min`, `P25`, `P50`, `P75`, `Max`) of how spread out individual tags' raw counts and percentages are within each language, with each cell showing both, e.g. `120 (12.0%)`.
 
 It reads `HF_TOKEN` from the environment the same way as [HuggingFace Authentication](#huggingface-authentication) above, needed if `--hf-dataset-repo-id` is private.
 
@@ -436,7 +437,8 @@ uv run processing_scripts/usas_tag_distribution.py
 uv run processing_scripts/usas_tag_distribution.py -l da -l en --split all --top-bottom-count 5 --format latex \
     --output-table-major ./data/tables/major_tags.tex \
     --output-table-top ./data/tables/top_tags.tex \
-    --output-table-bottom ./data/tables/bottom_tags.tex
+    --output-table-bottom ./data/tables/bottom_tags.tex \
+    --output-table-summary ./data/tables/tag_summary.tex
 ```
 
 Some options worth knowing about (run `--help` for the full list):
@@ -444,7 +446,7 @@ Some options worth knowing about (run `--help` for the full list):
 * `-s`/`--split` - `train` (default), `validation`, or `all` (combines both splits).
 * `-n`/`--top-bottom-count` - number of most-common (top) and least-common (bottom) individual tags to report (default `10`).
 * `-f`/`--format` - `markdown` (default) or `latex` for the distribution tables.
-* `--output-table-major`/`--output-table-top`/`--output-table-bottom` - optional paths to write each distribution table to; defaults to printing to the console.
+* `--output-table-major`/`--output-table-top`/`--output-table-bottom`/`--output-table-summary` - optional paths to write each distribution table to; defaults to printing to the console.
 
 ## Pipeline runtime and peak node usage
 
@@ -594,6 +596,8 @@ uv run processing_scripts/token_count_distribution.py --split train --format lat
     
 # Print a table for every language in the default dataset:
 uv run processing_scripts/dataset_statistics.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --hf-dataset-revision "main" --output-latex ./data/tables/overall_dataset_statistics.tex
+
+# Print the tag distribution
 
 ```
 
