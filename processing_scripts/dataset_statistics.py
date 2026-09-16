@@ -19,6 +19,22 @@ from wikipedia_processing.utils import (
 )
 
 DATASET_SPLITS = ("train", "validation")
+
+
+class DatasetSplit(str, Enum):
+    """Which split(s) of the Hub dataset to compute statistics over.
+
+    `all` reports `train`, `validation`, and their combined total as
+    separate rows. `combined` loads both splits but reports only their
+    combined total, without the separate `train`/`validation` rows.
+    """
+
+    train = "train"
+    validation = "validation"
+    all = "all"
+    combined = "combined"
+
+
 COLUMN_LABELS = {
     "language": "Language",
     "split": "Split",
@@ -438,28 +454,30 @@ def main(
     output_csv: Annotated[Path | None, typer.Option("--output-csv", help="Optional path to also write the statistics table to as a CSV file.")] = None,
     output_latex: Annotated[Path | None, typer.Option("--output-latex", help="Optional path to also write the statistics table to as a LaTeX tabular environment.")] = None,
     exclude_columns: Annotated[list[ColumnName] | None, typer.Option("-x", "--exclude-column", help="Column(s) to omit from the output table, CSV, and LaTeX. Repeatable.")] = None,
+    split: Annotated[DatasetSplit, typer.Option("-s", "--split", help="Dataset split to report statistics for. `all` reports `train`, `validation`, and their combined total; `combined` reports only the combined total.")] = DatasetSplit.all,
 ) -> None:
     """Report per-language, per-split, and total statistics for the Multilingual USAS Wikipedia dataset.
 
     For every language config in `hf_dataset_repo_id` (or those given via
-    `--language`), loads the `train` and `validation` splits and reports,
-    for each split: the number of articles, number of sentences, number of
-    tokens, number of labelled tokens (tokens with at least one USAS tag),
-    and number of Multi-Word Expressions (MWEs) -- sentences, tokens,
-    labelled tokens, and MWEs are all expressed in millions, rounded to 3
-    decimal places -- labels per token (the average number of USAS tag
-    labels per token, across both the `tags` and `other_tags` columns),
-    Multi Tag Membership (%) (the percentage of USAS tag labels that belong
-    to a "multi tag membership" group -- a labelled token's `tags` entry, or
-    an individual `other_tags` group, that itself contains more than one
-    USAS tag), number of unique USAS tags (from both `tags` and
-    `other_tags`), and MWE Tokens (%) (the percentage of tokens that are
-    part of at least one MWE). Each
-    language is shown by its full display name (e.g. "Danish", via
-    `language_display_name`) rather than its Wikipedia code, and rows are
-    sorted by that name. A final `"Total"` language aggregates every
-    language together, broken down into `train`, `validation`, and the
-    overall total.
+    `--language`), loads the split(s) selected by `--split` and reports, for
+    each: the number of articles, number of sentences, number of tokens,
+    number of labelled tokens (tokens with at least one USAS tag), and
+    number of Multi-Word Expressions (MWEs) -- sentences, tokens, labelled
+    tokens, and MWEs are all expressed in millions, rounded to 3 decimal
+    places -- labels per token (the average number of USAS tag labels per
+    token, across both the `tags` and `other_tags` columns), Multi Tag
+    Membership (%) (the percentage of USAS tag labels that belong to a
+    "multi tag membership" group -- a labelled token's `tags` entry, or an
+    individual `other_tags` group, that itself contains more than one USAS
+    tag), number of unique USAS tags (from both `tags` and `other_tags`),
+    and MWE Tokens (%) (the percentage of tokens that are part of at least
+    one MWE). Each language is shown by its full display name (e.g.
+    "Danish", via `language_display_name`) rather than its Wikipedia code,
+    and rows are sorted by that name. A final `"Total"` language aggregates
+    every language together the same way. With `--split all` (the default),
+    both `train` and `validation` rows are shown per language/`"Total"`,
+    plus a `"total"` row combining them; `--split combined` also loads both
+    splits but shows only the combined `"total"` row.
 
     Reads `HF_TOKEN` from the environment (e.g. via a `.env` file, loaded
     with `python-dotenv`) to authenticate with the Hub, which is required if
@@ -470,10 +488,10 @@ def main(
 
         $ uv run processing_scripts/dataset_statistics.py
 
-        Report statistics for a single language, omitting the MWE columns,
-        and also save to CSV and LaTeX:
+        Report statistics for a single language's `train` split only,
+        omitting the MWE columns, and also save to CSV and LaTeX:
 
-        $ uv run processing_scripts/dataset_statistics.py -l da \\
+        $ uv run processing_scripts/dataset_statistics.py -l da --split train \\
               -x number_of_mwes -x mwe_token_percentage \\
               --output-csv ./stats.csv --output-latex ./stats.tex
     """
@@ -486,20 +504,43 @@ def main(
     excluded_columns = {column.value for column in exclude_columns} if exclude_columns else set()
     columns_to_include = tuple(column for column in COLUMNS if column not in excluded_columns)
 
+    match split:
+        case DatasetSplit.all:
+            splits_to_load = DATASET_SPLITS
+            emit_individual_splits = True
+        case DatasetSplit.combined:
+            splits_to_load = DATASET_SPLITS
+            emit_individual_splits = False
+        case _:
+            splits_to_load = (split.value,)
+            emit_individual_splits = True
+
     rows: list[dict[str, str | int | float]] = []
-    overall_by_split: dict[str, DatasetStatistics] = {split: DatasetStatistics() for split in DATASET_SPLITS}
+    overall_by_split: dict[str, DatasetStatistics] = {split_name: DatasetStatistics() for split_name in splits_to_load}
 
     for wikipedia_language_code in wikipedia_language_codes:
-        for split in DATASET_SPLITS:
-            dataset = load_dataset(hf_dataset_repo_id, wikipedia_language_code, split=split, revision=hf_dataset_revision, token=hf_token)
+        per_language_by_split: dict[str, DatasetStatistics] = {}
+        for split_name in splits_to_load:
+            dataset = load_dataset(hf_dataset_repo_id, wikipedia_language_code, split=split_name, revision=hf_dataset_revision, token=hf_token)
             statistics = compute_split_statistics(dataset)
-            rows.append(statistics_row(language_display_name(wikipedia_language_code), split, statistics))
-            overall_by_split[split] = overall_by_split[split].merged_with(statistics)
+            per_language_by_split[split_name] = statistics
+            overall_by_split[split_name] = overall_by_split[split_name].merged_with(statistics)
+            if emit_individual_splits:
+                rows.append(statistics_row(language_display_name(wikipedia_language_code), split_name, statistics))
+        if len(splits_to_load) > 1:
+            combined_statistics = DatasetStatistics()
+            for split_name in splits_to_load:
+                combined_statistics = combined_statistics.merged_with(per_language_by_split[split_name])
+            rows.append(statistics_row(language_display_name(wikipedia_language_code), "total", combined_statistics))
 
-    for split in DATASET_SPLITS:
-        rows.append(statistics_row("Total", split, overall_by_split[split]))
-    overall_total = overall_by_split["train"].merged_with(overall_by_split["validation"])
-    rows.append(statistics_row("Total", "total", overall_total))
+    if emit_individual_splits:
+        for split_name in splits_to_load:
+            rows.append(statistics_row("Total", split_name, overall_by_split[split_name]))
+    if len(splits_to_load) > 1:
+        overall_total = DatasetStatistics()
+        for split_name in splits_to_load:
+            overall_total = overall_total.merged_with(overall_by_split[split_name])
+        rows.append(statistics_row("Total", "total", overall_total))
 
     table = Table(title="Multilingual USAS Wikipedia dataset statistics")
     for column in columns_to_include:

@@ -335,7 +335,7 @@ Some options worth knowing about (run `--help` for the full list):
 
 ## Dataset statistics
 
-[processing_scripts/dataset_statistics.py](processing_scripts/dataset_statistics.py) reports per-language, per-split statistics for a dataset already built and uploaded by `build_usas_wikipedia_dataset.py` (e.g. `ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia`) — like `deduplicate_wikipedia_dataset.py` above, it only reads the already-processed `train`/`validation` Parquet output, it does not re-run any of the filtering/tagging pipeline. Each language is shown by its full display name (e.g. "Danish", via `language_display_name`), sorted alphabetically. For each language's `train` and `validation` split, plus a `"Total"` language aggregating every language together (again broken down into `train`, `validation`, and the overall total), it reports:
+[processing_scripts/dataset_statistics.py](processing_scripts/dataset_statistics.py) reports per-language, per-split statistics for a dataset already built and uploaded by `build_usas_wikipedia_dataset.py` (e.g. `ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia`) — like `deduplicate_wikipedia_dataset.py` above, it only reads the already-processed `train`/`validation` Parquet output, it does not re-run any of the filtering/tagging pipeline. Each language is shown by its full display name (e.g. "Danish", via `language_display_name`), sorted alphabetically. For each language, plus a `"Total"` language aggregating every language together, it reports the following for whichever split(s) `--split` selects (see below):
 
 * Number of articles and number of sentences (Sentences (M), in millions, rounded to 3 decimal places).
 * Number of tokens (Tokens (M), in millions, rounded to 3 decimal places).
@@ -348,16 +348,17 @@ Some options worth knowing about (run `--help` for the full list):
 It reads `HF_TOKEN` from the environment the same way as [HuggingFace Authentication](#huggingface-authentication) above (via `.env`/`python-dotenv`), needed if `--hf-dataset-repo-id` is private.
 
 ``` bash
-# Print a table for every language in the default dataset:
+# Print a table for every language in the default dataset (train + validation + combined total):
 uv run processing_scripts/dataset_statistics.py
 
-# Report statistics for a single language, omitting the MWE columns, and also export to CSV and LaTeX:
-uv run processing_scripts/dataset_statistics.py -l da -x number_of_mwes -x mwe_token_percentage \
+# Report statistics for a single language's train split only, omitting the MWE columns, and also export to CSV and LaTeX:
+uv run processing_scripts/dataset_statistics.py -l da --split train -x number_of_mwes -x mwe_token_percentage \
     --output-csv ./stats.csv --output-latex ./stats.tex
 ```
 
 Some options worth knowing about (run `--help` for the full list):
 * `-l`/`--language` - restrict to specific language(s) (repeatable); defaults to every config found in `--hf-dataset-repo-id`.
+* `-s`/`--split` - `train`, `validation`, `all` (default; reports `train`, `validation`, and their combined total as separate rows), or `combined` (loads both splits but reports only their combined total, without the separate `train`/`validation` rows).
 * `-x`/`--exclude-column` - omit specific column(s) (repeatable) from the table, CSV, and LaTeX output, e.g. `-x number_of_mwes`. Column names match the dict keys used internally (run `--help` to see the full list of valid values).
 * `--output-csv` - also write the table to a CSV file, with raw unformatted numeric values (unlike the console table, which adds `,` thousands separators).
 * `--output-latex` - also write the table as a LaTeX `tabular` environment (`booktabs`-style rules), with the same human-readable, escaped headers shown in the console table.
@@ -597,6 +598,11 @@ uv run processing_scripts/token_count_distribution.py --split train --format lat
 
     
 # Overall dataset statistics
+uv run processing_scripts/dataset_statistics.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --split all --hf-dataset-revision "main" --output-latex ./data/tables/overall_dataset_statistics.tex
+
+# Overall dataset statistics total only values
+uv run processing_scripts/dataset_statistics.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --split combined --hf-dataset-revision "main" --output-latex ./data/tables/combined_overall_dataset_statistics.tex
+
 uv run processing_scripts/dataset_statistics.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --hf-dataset-revision "main" --output-latex ./data/tables/overall_dataset_statistics.tex
 
 # Tag distribution statistics
