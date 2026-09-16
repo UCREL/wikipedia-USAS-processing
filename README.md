@@ -548,6 +548,55 @@ Some options worth knowing about (run `--help` for the full list):
 
 </details>
 
+
+## Estimating deduplication loss
+
+`deduplicate_wikipedia_dataset.py` above never records how many documents its `id`-based dedup actually removed from a given build. [processing_scripts/report_deduplication_loss.py](processing_scripts/report_deduplication_loss.py) estimates that count after the fact, purely by diffing two already-generated LaTeX tables — it makes no HuggingFace Hub or `log_data` calls itself:
+
+* The `"Kept"` column of `report_pipeline_document_funnel.py --view dropped` (default: `data/tables/pipeline_funnel.tex`) — documents surviving the pipeline's own GA/FA, test-URL, min-words, exact-dedup, and MinHash-dedup filters, per language.
+* The `"Articles"` column of `dataset_statistics.py --output-latex` (default: `data/tables/overall_dataset_statistics.tex`) — the final published article count per language, summed across whichever splits are present (a language's separate `train`/`validation` rows are added together; an explicit combined row, e.g. from `--split all`/`--split combined`, is used as-is instead of being double-counted).
+
+`documents_after_filtering − final_articles` is then the number of documents removed afterwards — exactly what the `id`-based dedup step does to a freshly-built dataset. **Caveat:** this is only a valid measurement when the funnel table's `log_data` run is the *same, complete* run that produced the final dataset. If the dataset was instead built from several separate pipeline runs merged together (see [Commands used to create the original dataset](#commands-used-to-create-the-original-ucrelnlpmultilingual-usas-labelled-silver-wikipedia-dataset) below), the funnel table only reflects one of those runs, and the diff will not isolate dedup-by-id loss — it will also pick up every document contributed by the other runs.
+
+A language present in only one table, or with an unavailable (`"n/a"`) "Kept" count, is skipped and reported separately; a final `"Total (matched languages)"` row sums the figures across every included language.
+
+``` bash
+# Report using the default table paths:
+uv run processing_scripts/report_deduplication_loss.py
+
+# Report using explicit paths, and also save to CSV:
+uv run processing_scripts/report_deduplication_loss.py \
+    data/tables/pipeline_funnel.tex data/tables/overall_dataset_statistics.tex \
+    --output-csv data/tables/dedup_loss.csv
+```
+
+Some options worth knowing about (run `--help` for the full list):
+* Two positional arguments - the funnel table path and the statistics table path, in that order; both default to the paths shown above.
+* `--output-csv` - also write the report to a CSV file, with raw unformatted numeric values.
+* `--output-latex` - also write the report as a LaTeX `tabular` environment (`booktabs`-style rules).
+
+<details>
+
+<summary>Output: Estimated document loss from id-based deduplication</summary>
+
+``` bash                        
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━┓
+┃ Language                  ┃ Documents After Filtering ┃ Final Articles ┃ Dropped ┃ Dropped (%) ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━┩
+│ Chinese                   │ 2,815                     │ 2,807          │ 8       │ 0.28        │
+│ Danish                    │ 187                       │ 187            │ 0       │ 0.00        │
+│ Dutch                     │ 378                       │ 378            │ 0       │ 0.00        │
+│ English                   │ 49,242                    │ 49,218         │ 24      │ 0.05        │
+│ Finnish                   │ 865                       │ 865            │ 0       │ 0.00        │
+│ Italian                   │ 1,162                     │ 1,161          │ 1       │ 0.09        │
+│ Portuguese                │ 3,470                     │ 3,469          │ 1       │ 0.03        │
+│ Spanish                   │ 4,590                     │ 4,581          │ 9       │ 0.20        │
+│ Total (matched languages) │ 62,709                    │ 62,666         │ 43      │ 0.07        │
+└───────────────────────────┴───────────────────────────┴────────────────┴─────────┴─────────────┘
+```
+
+</details>
+
 ## Clearing stale shards from a Hub dataset repository
 
 `HuggingFaceDatasetWriter` (used by `build_usas_wikipedia_dataset.py` when uploading directly to the Hub) only ever adds/overwrites the specific Parquet shard files it writes — it never deletes pre-existing files in the repo. If a previous run for a language wrote more shards than a later re-run produces (e.g. an earlier, larger run left `data/da/train/003.parquet` behind), those extra shards are silently left in the repo and included in the dataset by anyone loading it.
@@ -578,10 +627,12 @@ These commands were used to create the original [ucrelnlp/Multilingual-USAS-Labe
 # This was ran on a SLURM cluster whereby the python executable had this code base installed via `pip install .`
 python processing_scripts/run_all_training_languages.py ./log_data --executor slurm --slurm-partition cpu-48h --slurm-time 30:00:00 --hf-dataset-repo-id ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia --slurm-mem-per-cpu-gb 5 --slurm-venv-path /mnt/nfs/homes/mooreap1/wikipedia-USAS-processing/venv/bin/python --slurm-cpus-per-task 1 --max-workers-per-language 30 --max-tasks-per-language 30 --min-tasks-per-language 2 --languages-file ./usas_wikipedia_processing.yaml --slurm-sbatch-args "{\"nice\": 100}" --max-number-of-parallel-tasks 180 --shard-tasks-multiplier 1 --randomize-start-duration 65 --min-hash-threshold 0.85 --overwrite
 # This command was ran after all of the languages had been processed, it was ran locally not on the SLURM cluster.
+# this de-duplicated with respect to the Wikipedia Article/Page ID and re-balances the train and validation
+# split.
 uv run processing_scripts/deduplicate_wikipedia_dataset.py -p 10 --push
 ```
 
-The first command used `python` rather than `uv` as we ran it on our SLURM cluster, in essence most of the time as we had a hard limit on the number of tasks that a user could submit to SLURM in one go (inclduing tasks that are scheduled but not running), we ended up running this command multiple times but processing different languages using `--languages-file ./usas_wikipedia_processing.yaml` file to state which languages ran via setting `training` to `False` for languages that we did not want to process data for. This command used 1 CPU with 5GB of RAM in total per task which is more than enough for this processing setup. Afterwards we ran the de-duplicating script locally and ensured that each language had either 10% or at most 20 of the articles as validation data whichever was lower.
+The first command used `python` rather than `uv` as we ran it on our SLURM cluster, in essence most of the time as we had a hard limit on the number of tasks that a user could submit to SLURM in one go (inclduing tasks that are scheduled but not running), we ended up running this command multiple times but processing different languages using `--languages-file ./usas_wikipedia_processing.yaml` file to state which languages ran via setting `training` to `False` for languages that we did not want to process data for. This command used 1 CPU with 5GB of RAM in total per task which is more than enough for this processing setup. Afterwards we ran the de-duplicating with respect to the Wikipedia Article/Page ID keeping the most recent version of the article script locally and ensured that each language had either 10% or at most 20 of the articles as validation data whichever was lower.
 
 The various dataset statistics that compliment this dataset can be generated using the following commands;
 ``` bash
@@ -603,7 +654,8 @@ uv run processing_scripts/dataset_statistics.py --hf-dataset-repo-id "ucrelnlp/M
 # Overall dataset statistics total only values
 uv run processing_scripts/dataset_statistics.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --split combined --hf-dataset-revision "main" --output-latex ./data/tables/combined_overall_dataset_statistics.tex
 
-uv run processing_scripts/dataset_statistics.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --hf-dataset-revision "main" --output-latex ./data/tables/overall_dataset_statistics.tex
+# The number of documents removed from de-duplication using Wikipedia Article/Page ID table
+uv run processing_scripts/report_deduplication_loss.py --output-latex ./data/tables/de_duplication_using_wikipedia_article_id.tex
 
 # Tag distribution statistics
 uv run processing_scripts/usas_tag_distribution.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --hf-dataset-revision "main" --split all --top-bottom-count 5 --format latex --output-table-major ./data/tables/major_tag_distribution.tex --output-table-top ./data/tables/top_tags_distributi
