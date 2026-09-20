@@ -23,14 +23,41 @@ from enum import Enum
 from pathlib import Path
 from typing import Annotated
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import numpy as np
 import typer
 from datasets import Dataset, get_dataset_config_names, load_dataset
 from dotenv import load_dotenv
+from matplotlib.colors import LinearSegmentedColormap
 from rich import print as rprint
 
 from wikipedia_processing.utils import (
     get_valid_usas_language_processing_wikipedia_codes,
     language_display_name,
+)
+
+# Light-to-dark sequential ramp from the project's validated data-viz
+# palette (single hue: blue), used to color the major tag heatmap by
+# magnitude. Matches the hues `LANGUAGE_COLORS` draws from in
+# `token_count_distribution.py`.
+SEQUENTIAL_BLUE_RAMP: tuple[str, ...] = (
+    "#cde2fb",
+    "#b7d3f6",
+    "#9ec5f4",
+    "#86b6ef",
+    "#6da7ec",
+    "#5598e7",
+    "#3987e5",
+    "#2a78d6",
+    "#256abf",
+    "#1c5cab",
+    "#184f95",
+    "#104281",
+    "#0d366b",
 )
 
 WikipediaLanguageCode = Enum("WikipediaLanguageCode", [(value, value) for value in get_valid_usas_language_processing_wikipedia_codes()], type=str)
@@ -494,6 +521,59 @@ def write_or_print_table(rendered_table: str, output_path: Path | None, descript
     rprint(f"Wrote {description} distribution table to {output_path!r}")
 
 
+def plot_major_tag_heatmap(percentages_by_language: dict[str, dict[str, float]], output: Path) -> None:
+    """Render a heatmap of major tag percentages, one row per tag, one column per language.
+
+    Tags are ordered alphabetically (rather than by frequency, as in the
+    Markdown/LaTeX major tag distribution table) so the heatmap's row axis
+    stays fixed and scannable. Languages are columns, sorted by display
+    name, plus a trailing "Macro Avg" column -- the unweighted mean of each
+    language's own percentage for that tag. Cells are colored on a single
+    light-to-dark blue scale, from 0 to the matrix-wide maximum percentage.
+
+    Args:
+        percentages_by_language: Mapping of Wikipedia language code to that
+            language's major tag -> percentage-of-occurrences mapping.
+        output: File path the figure is saved to.
+    """
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    language_codes = sorted(percentages_by_language, key=language_display_name)
+    macro_averages = compute_macro_average_percentages(percentages_by_language)
+    tags = sorted(macro_averages)
+    column_labels = [*(language_display_name(code) for code in language_codes), "Macro Avg"]
+    matrix = np.array([[*(percentages_by_language[code].get(tag, 0.0) for code in language_codes), macro_averages[tag]] for tag in tags])
+
+    color_map = LinearSegmentedColormap.from_list("usas_sequential_blue", SEQUENTIAL_BLUE_RAMP)
+
+    fig, ax = plt.subplots(figsize=(0.9 * len(column_labels) + 2, 0.35 * len(tags) + 2), dpi=150)
+    image = ax.imshow(matrix, cmap=color_map, aspect="auto", vmin=0)
+
+    ax.set_xticks(range(len(column_labels)))
+    ax.set_xticklabels(column_labels, rotation=45, ha="right")
+    ax.set_yticks(range(len(tags)))
+    ax.set_yticklabels(tags)
+    ax.set_title("Major Tag Distribution by Language (%)")
+
+    text_color_threshold = matrix.max() / 2 if matrix.size else 0.0
+    for row_index, row_values in enumerate(matrix):
+        for column_index, value in enumerate(row_values):
+            text_color = "white" if value > text_color_threshold else "#0b0b0b"
+            ax.text(column_index, row_index, f"{value:.1f}", ha="center", va="center", color=text_color, fontsize=8)
+
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.set_xticks(np.arange(-0.5, len(column_labels), 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, len(tags), 1), minor=True)
+    ax.grid(which="minor", color="#fcfcfb", linewidth=2)
+    ax.tick_params(which="minor", bottom=False, left=False)
+
+    fig.colorbar(image, ax=ax, label="Percentage of tag occurrences", fraction=0.03, pad=0.02)
+    fig.tight_layout()
+    fig.savefig(output)
+    plt.close(fig)
+
+
 def main(
     languages: Annotated[list[WikipediaLanguageCode] | None, typer.Option("-l", "--language", help="Language config(s) to compute statistics for. Repeatable. Defaults to every config found in --hf-dataset-repo-id.")] = None,
     hf_dataset_repo_id: Annotated[str, typer.Option("--hf-dataset-repo-id", help="HuggingFace Hub dataset repository (`namespace/name`) to read from.")] = "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia",
@@ -505,6 +585,7 @@ def main(
     output_table_top: Annotated[Path | None, typer.Option(help="Optional path to write the top-tags distribution table to. Defaults to printing to the console.")] = None,
     output_table_bottom: Annotated[Path | None, typer.Option(help="Optional path to write the bottom-tags distribution table to. Defaults to printing to the console.")] = None,
     output_table_summary: Annotated[Path | None, typer.Option(help="Optional path to write the tag-frequency summary table to. Defaults to printing to the console.")] = None,
+    output_heatmap_major: Annotated[Path, typer.Option(help="Path to write the major tag distribution heatmap to.")] = Path("data/plots/major_tag_distribution_heatmap.png"),
 ) -> None:
     """Report per-language and macro-average USAS tag distributions.
 
@@ -521,6 +602,10 @@ def main(
     * The bottom `--top-bottom-count` least common individual tags.
     * A five-number summary (min, 25th/50th/75th percentile, max) of how
       individual tags' percentages and raw counts are spread out.
+
+    Also renders the major tag distribution as a PNG heatmap (tags sorted
+    alphabetically, rather than ranked by macro-average percentage as in
+    the table).
 
     Reads `HF_TOKEN` from the environment (e.g. via a `.env` file, loaded
     with `python-dotenv`) to authenticate with the Hub, which is required if
@@ -563,6 +648,9 @@ def main(
 
     tag_percentages_by_language = {code: tag_percentages(counts) for code, counts in tag_counts_by_language.items()}
     major_tag_percentages_by_language = {code: major_tag_percentages(counts) for code, counts in tag_counts_by_language.items()}
+
+    plot_major_tag_heatmap(major_tag_percentages_by_language, output_heatmap_major)
+    rprint(f"Wrote major tag distribution heatmap to {output_heatmap_major!r}")
 
     alignments = ["left"] + ["right"] * (len(tag_percentages_by_language) + 1)
 

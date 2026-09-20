@@ -438,6 +438,8 @@ Some options worth knowing about (run `--help` for the full list):
 * The bottom `--top-bottom-count` least common individual tags.
 * A five-number summary (`Min`, `P25`, `P50`, `P75`, `Max`) of how spread out individual tags' raw counts and percentages are within each language, with each cell showing both, e.g. `120 (12.0%)`.
 
+It also renders the major tag distribution as a PNG heatmap (one column per language plus `Macro Avg`, cells colored on a light-to-dark scale by percentage) -- rows are sorted alphabetically by tag in the heatmap, rather than ranked by macro-average percentage as in the table above.
+
 It reads `HF_TOKEN` from the environment the same way as [HuggingFace Authentication](#huggingface-authentication) above, needed if `--hf-dataset-repo-id` is private.
 
 ``` bash
@@ -449,7 +451,8 @@ uv run processing_scripts/usas_tag_distribution.py -l da -l en --split all --top
     --output-table-major ./data/tables/major_tags.tex \
     --output-table-top ./data/tables/top_tags.tex \
     --output-table-bottom ./data/tables/bottom_tags.tex \
-    --output-table-summary ./data/tables/tag_summary.tex
+    --output-table-summary ./data/tables/tag_summary.tex \
+    --output-heatmap-major ./data/plots/major_tag_heatmap.png
 ```
 
 Some options worth knowing about (run `--help` for the full list):
@@ -458,6 +461,7 @@ Some options worth knowing about (run `--help` for the full list):
 * `-n`/`--top-bottom-count` - number of most-common (top) and least-common (bottom) individual tags to report (default `10`).
 * `-f`/`--format` - `markdown` (default) or `latex` for the distribution tables.
 * `--output-table-major`/`--output-table-top`/`--output-table-bottom`/`--output-table-summary` - optional paths to write each distribution table to; defaults to printing to the console.
+* `--output-heatmap-major` - PNG output path for the major tag distribution heatmap (default under `data/plots/`).
 
 ## Pipeline runtime and peak node usage
 
@@ -667,7 +671,7 @@ uv run processing_scripts/report_deduplication_loss.py --output-latex ./data/tab
 
 # Tag distribution statistics
 uv run processing_scripts/usas_tag_distribution.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --hf-dataset-revision "main" --split all --top-bottom-count 5 --format latex --output-table-major ./data/tables/major_tag_distribution.tex --output-table-top ./data/tables/top_tags_distributi
-on.tex --output-table-bottom ./data/tables/bottom_tags_distribution.tex --output-table-summary ./data/tables/tag_frequency_summary.tex
+on.tex --output-table-bottom ./data/tables/bottom_tags_distribution.tex --output-table-summary ./data/tables/tag_frequency_summary.tex --output-heatmap-major ./data/plots/major_tag_heatmap.png
 ```
 
 
