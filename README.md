@@ -670,8 +670,7 @@ uv run processing_scripts/dataset_statistics.py --hf-dataset-repo-id "ucrelnlp/M
 uv run processing_scripts/report_deduplication_loss.py --output-latex ./data/tables/de_duplication_using_wikipedia_article_id.tex
 
 # Tag distribution statistics
-uv run processing_scripts/usas_tag_distribution.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --hf-dataset-revision "main" --split all --top-bottom-count 5 --format latex --output-table-major ./data/tables/major_tag_distribution.tex --output-table-top ./data/tables/top_tags_distributi
-on.tex --output-table-bottom ./data/tables/bottom_tags_distribution.tex --output-table-summary ./data/tables/tag_frequency_summary.tex --output-heatmap-major ./data/plots/major_tag_heatmap.png
+uv run processing_scripts/usas_tag_distribution.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --hf-dataset-revision "main" --split all --top-bottom-count 5 --format latex --output-table-major ./data/tables/major_tag_distribution.tex --output-table-top ./data/tables/top_tags_distribution.tex --output-table-bottom ./data/tables/bottom_tags_distribution.tex --output-table-summary ./data/tables/tag_frequency_summary.tex --output-heatmap-major ./data/plots/major_tag_heatmap.png
 ```
 
 
