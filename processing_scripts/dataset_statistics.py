@@ -42,7 +42,7 @@ COLUMN_LABELS = {
     "number_of_sentences": "Sentences (M)",
     "number_of_tokens": "Tokens (M)",
     "number_of_labelled_tokens": "Labelled Tokens (M)",
-    "labels_per_token": "Labels per Token",
+    "labels_per_labelled_token": "Labels per Labelled Token",
     "multi_tag_membership_percentage": "Multi Tag Membership (%)",
     "number_of_unique_tags": "Unique Tags",
     "number_of_mwes": "MWEs (M)",
@@ -102,18 +102,18 @@ class DatasetStatistics:
     number_of_mwe_tokens: int = 0
 
     @property
-    def labels_per_token(self) -> float:
-        """Average number of USAS tag labels per token, across `tags` and `other_tags`.
+    def labels_per_labelled_token(self) -> float:
+        """Average number of USAS tag labels per labelled token, across `tags` and `other_tags`.
 
         Examples:
-            >>> DatasetStatistics(number_of_tokens=4, number_of_tag_labels=6).labels_per_token
+            >>> DatasetStatistics(number_of_labelled_tokens=4, number_of_tag_labels=6).labels_per_labelled_token
             1.5
-            >>> DatasetStatistics().labels_per_token
+            >>> DatasetStatistics().labels_per_labelled_token
             0.0
         """
-        if self.number_of_tokens == 0:
+        if self.number_of_labelled_tokens == 0:
             return 0.0
-        return self.number_of_tag_labels / self.number_of_tokens
+        return self.number_of_tag_labels / self.number_of_labelled_tokens
 
     @property
     def multi_tag_membership_percentage(self) -> float:
@@ -323,7 +323,7 @@ def statistics_row(language: str, split: str, statistics: DatasetStatistics) -> 
         "number_of_sentences": round(statistics.number_of_sentences / 1_000_000, 3),
         "number_of_tokens": round(statistics.number_of_tokens / 1_000_000, 3),
         "number_of_labelled_tokens": round(statistics.number_of_labelled_tokens / 1_000_000, 3),
-        "labels_per_token": round(statistics.labels_per_token, 2),
+        "labels_per_labelled_token": round(statistics.labels_per_labelled_token, 2),
         "multi_tag_membership_percentage": round(statistics.multi_tag_membership_percentage, 2),
         "number_of_unique_tags": statistics.number_of_unique_tags,
         "number_of_mwes": round(statistics.number_of_mwes / 1_000_000, 3),
@@ -375,7 +375,7 @@ def decimal_places_for_column(column: str) -> int:
     Examples:
         >>> decimal_places_for_column("number_of_tokens")
         3
-        >>> decimal_places_for_column("labels_per_token")
+        >>> decimal_places_for_column("labels_per_labelled_token")
         2
     """
     return 3 if column in MILLION_SCALED_COLUMNS else 2
@@ -464,8 +464,9 @@ def main(
     number of labelled tokens (tokens with at least one USAS tag), and
     number of Multi-Word Expressions (MWEs) -- sentences, tokens, labelled
     tokens, and MWEs are all expressed in millions, rounded to 3 decimal
-    places -- labels per token (the average number of USAS tag labels per
-    token, across both the `tags` and `other_tags` columns), Multi Tag
+    places -- labels per labelled token (the average number of USAS tag
+    labels per labelled token, across both the `tags` and `other_tags`
+    columns), Multi Tag
     Membership (%) (the percentage of USAS tag labels that belong to a
     "multi tag membership" group -- a labelled token's `tags` entry, or an
     individual `other_tags` group, that itself contains more than one USAS

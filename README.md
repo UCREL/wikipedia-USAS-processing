@@ -339,7 +339,7 @@ Some options worth knowing about (run `--help` for the full list):
 
 * Number of articles and number of sentences (Sentences (M), in millions, rounded to 3 decimal places).
 * Number of tokens (Tokens (M), in millions, rounded to 3 decimal places).
-* Number of labelled tokens (Labelled Tokens (M), tokens with at least one USAS tag, in millions rounded to 3 decimal places) and Labels per Token — the average number of USAS tag labels per token, counting both the `tags` and `other_tags` columns (both are positive labels when training).
+* Number of labelled tokens (Labelled Tokens (M), tokens with at least one USAS tag, in millions rounded to 3 decimal places) and Labels per Labelled Token — the average number of USAS tag labels per labelled token, counting both the `tags` and `other_tags` columns (both are positive labels when training).
 * Multi Tag Membership (%) — the percentage of USAS tag labels that belong to a "multi tag membership" group. A "multi tag membership" group is any tag group — a labelled token's `tags` entry, or an individual group within its `other_tags` entry — that itself contains more than one USAS tag, e.g. `tags[0][0]` is `["A3", "M6"]`. Every tag within such a group counts towards both the numerator and the denominator (the total count of individual tag labels across `tags` and `other_tags`), so this always falls between 0% and 100%.
 * Number of unique USAS tags (from both `tags` and `other_tags`).
 * Number of Multi-Word Expressions (MWEs (M), in millions, rounded to 3 decimal places).
@@ -368,29 +368,37 @@ Some options worth knowing about (run `--help` for the full list):
 <summary>Initial Dataset Statistics</summary>
 
 ``` bash
-┏━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━┓
-┃ Language   ┃ Split      ┃ Articles ┃ Sentences (M) ┃ Tokens (M) ┃ Labelled Tokens (M) ┃ Labels per Token ┃ Multi Tag Membership (%) ┃ Unique Tags ┃ MWEs (M) ┃ MWE Tokens (%) ┃
-┡━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
-│ Chinese    │ train      │ 2,787    │ 0.670         │ 15.463     │ 10.010              │ 2.90             │ 21.12                    │ 215         │ 0.047    │ 0.62           │
-│ Chinese    │ validation │ 20       │ 0.007         │ 0.149      │ 0.100               │ 3.05             │ 22.01                    │ 214         │ 0.000    │ 0.64           │
-│ Danish     │ train      │ 168      │ 0.062         │ 1.278      │ 0.968               │ 1.28             │ 13.42                    │ 213         │ 0.033    │ 6.14           │
-│ Danish     │ validation │ 19       │ 0.006         │ 0.138      │ 0.102               │ 1.24             │ 13.37                    │ 211         │ 0.003    │ 5.74           │
-│ Dutch      │ train      │ 358      │ 0.149         │ 2.599      │ 1.743               │ 1.59             │ 10.87                    │ 211         │ 0.000    │ 0.00           │
-│ Dutch      │ validation │ 20       │ 0.009         │ 0.160      │ 0.110               │ 1.65             │ 11.38                    │ 211         │ 0.000    │ 0.00           │
-│ English    │ train      │ 49,198   │ 7.134         │ 182.734    │ 170.030             │ 1.68             │ 11.10                    │ 217         │ 13.785   │ 17.57          │
-│ English    │ validation │ 20       │ 0.004         │ 0.106      │ 0.099               │ 1.64             │ 11.05                    │ 212         │ 0.008    │ 17.65          │
-│ Finnish    │ train      │ 845      │ 0.216         │ 3.356      │ 2.454               │ 1.35             │ 16.21                    │ 209         │ 0.000    │ 0.00           │
-│ Finnish    │ validation │ 20       │ 0.005         │ 0.072      │ 0.053               │ 1.35             │ 12.95                    │ 207         │ 0.000    │ 0.00           │
-│ Italian    │ train      │ 1,141    │ 0.329         │ 9.485      │ 7.776               │ 1.67             │ 11.99                    │ 219         │ 0.094    │ 2.13           │
-│ Italian    │ validation │ 20       │ 0.005         │ 0.154      │ 0.127               │ 1.74             │ 12.83                    │ 216         │ 0.002    │ 2.25           │
-│ Portuguese │ train      │ 3,449    │ 0.760         │ 17.784     │ 13.795              │ 2.16             │ 15.24                    │ 218         │ 0.132    │ 1.61           │
-│ Portuguese │ validation │ 20       │ 0.004         │ 0.102      │ 0.080               │ 2.15             │ 16.67                    │ 215         │ 0.001    │ 1.45           │
-│ Spanish    │ train      │ 4,561    │ 0.917         │ 30.044     │ 24.078              │ 1.52             │ 1.03                     │ 219         │ 0.067    │ 0.47           │
-│ Spanish    │ validation │ 20       │ 0.003         │ 0.106      │ 0.086               │ 1.55             │ 1.13                     │ 219         │ 0.000    │ 0.52           │
-│ Total      │ train      │ 62,507   │ 10.237        │ 262.745    │ 230.853             │ 1.76             │ 11.51                    │ 220         │ 14.158   │ 12.52          │
-│ Total      │ validation │ 159      │ 0.044         │ 0.987      │ 0.758               │ 1.84             │ 14.21                    │ 220         │ 0.014    │ 3.35           │
-│ Total      │ total      │ 62,666   │ 10.281        │ 263.732    │ 231.611             │ 1.76             │ 11.52                    │ 220         │ 14.173   │ 12.49          │
-└────────────┴────────────┴──────────┴───────────────┴────────────┴─────────────────────┴──────────────────┴──────────────────────────┴─────────────┴──────────┴────────────────┘
+┏━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━┓
+┃ Language   ┃ Split      ┃ Articles ┃ Sentences (M) ┃ Tokens (M) ┃ Labelled Tokens (M) ┃ Labels per Labelled Token ┃ Multi Tag Membership (%) ┃ Unique Tags ┃ MWEs (M) ┃ MWE Tokens (%) ┃
+┡━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
+│ Chinese    │ train      │ 2,787    │ 0.670         │ 15.463     │ 10.010              │ 4.48                      │ 21.12                    │ 215         │ 0.047    │ 0.62           │
+│ Chinese    │ validation │ 20       │ 0.007         │ 0.149      │ 0.100               │ 4.53                      │ 22.01                    │ 214         │ 0.000    │ 0.64           │
+│ Chinese    │ total      │ 2,807    │ 0.677         │ 15.613     │ 10.111              │ 4.48                      │ 21.13                    │ 215         │ 0.048    │ 0.62           │
+│ Danish     │ train      │ 168      │ 0.062         │ 1.278      │ 0.968               │ 1.69                      │ 13.42                    │ 213         │ 0.033    │ 6.14           │
+│ Danish     │ validation │ 19       │ 0.006         │ 0.138      │ 0.102               │ 1.68                      │ 13.37                    │ 211         │ 0.003    │ 5.74           │
+│ Danish     │ total      │ 187      │ 0.068         │ 1.416      │ 1.070               │ 1.69                      │ 13.41                    │ 213         │ 0.036    │ 6.10           │
+│ Dutch      │ train      │ 358      │ 0.149         │ 2.599      │ 1.743               │ 2.37                      │ 10.87                    │ 211         │ 0.000    │ 0.00           │
+│ Dutch      │ validation │ 20       │ 0.009         │ 0.160      │ 0.110               │ 2.39                      │ 11.38                    │ 211         │ 0.000    │ 0.00           │
+│ Dutch      │ total      │ 378      │ 0.158         │ 2.759      │ 1.853               │ 2.37                      │ 10.90                    │ 211         │ 0.000    │ 0.00           │
+│ English    │ train      │ 49,198   │ 7.134         │ 182.734    │ 170.030             │ 1.81                      │ 11.10                    │ 217         │ 13.785   │ 17.57          │
+│ English    │ validation │ 20       │ 0.004         │ 0.106      │ 0.099               │ 1.76                      │ 11.05                    │ 212         │ 0.008    │ 17.65          │
+│ English    │ total      │ 49,218   │ 7.138         │ 182.840    │ 170.129             │ 1.81                      │ 11.10                    │ 217         │ 13.793   │ 17.57          │
+│ Finnish    │ train      │ 845      │ 0.216         │ 3.356      │ 2.454               │ 1.85                      │ 16.21                    │ 209         │ 0.000    │ 0.00           │
+│ Finnish    │ validation │ 20       │ 0.005         │ 0.072      │ 0.053               │ 1.82                      │ 12.95                    │ 207         │ 0.000    │ 0.00           │
+│ Finnish    │ total      │ 865      │ 0.221         │ 3.428      │ 2.507               │ 1.85                      │ 16.14                    │ 209         │ 0.000    │ 0.00           │
+│ Italian    │ train      │ 1,141    │ 0.329         │ 9.485      │ 7.776               │ 2.04                      │ 11.99                    │ 219         │ 0.094    │ 2.13           │
+│ Italian    │ validation │ 20       │ 0.005         │ 0.154      │ 0.127               │ 2.11                      │ 12.83                    │ 216         │ 0.002    │ 2.25           │
+│ Italian    │ total      │ 1,161    │ 0.335         │ 9.640      │ 7.904               │ 2.04                      │ 12.01                    │ 219         │ 0.096    │ 2.13           │
+│ Portuguese │ train      │ 3,449    │ 0.760         │ 17.784     │ 13.795              │ 2.78                      │ 15.24                    │ 218         │ 0.132    │ 1.61           │
+│ Portuguese │ validation │ 20       │ 0.004         │ 0.102      │ 0.080               │ 2.74                      │ 16.67                    │ 215         │ 0.001    │ 1.45           │
+│ Portuguese │ total      │ 3,469    │ 0.764         │ 17.886     │ 13.875              │ 2.78                      │ 15.24                    │ 218         │ 0.133    │ 1.61           │
+│ Spanish    │ train      │ 4,561    │ 0.917         │ 30.044     │ 24.078              │ 1.89                      │ 1.03                     │ 219         │ 0.067    │ 0.47           │
+│ Spanish    │ validation │ 20       │ 0.003         │ 0.106      │ 0.086               │ 1.90                      │ 1.13                     │ 219         │ 0.000    │ 0.52           │
+│ Spanish    │ total      │ 4,581    │ 0.920         │ 30.150     │ 24.164              │ 1.89                      │ 1.03                     │ 219         │ 0.067    │ 0.47           │
+│ Total      │ train      │ 62,507   │ 10.237        │ 262.745    │ 230.853             │ 2.00                      │ 11.51                    │ 220         │ 14.158   │ 12.52          │
+│ Total      │ validation │ 159      │ 0.044         │ 0.987      │ 0.758               │ 2.39                      │ 14.21                    │ 220         │ 0.014    │ 3.35           │
+│ Total      │ total      │ 62,666   │ 10.281        │ 263.732    │ 231.611             │ 2.01                      │ 11.52                    │ 220         │ 14.173   │ 12.49          │
+└────────────┴────────────┴──────────┴───────────────┴────────────┴─────────────────────┴───────────────────────────┴──────────────────────────┴─────────────┴──────────┴────────────────┘
 ```
 
 </details>
