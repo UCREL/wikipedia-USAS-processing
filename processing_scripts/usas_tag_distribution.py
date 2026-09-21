@@ -36,8 +36,10 @@ from matplotlib.colors import LinearSegmentedColormap
 from rich import print as rprint
 
 from wikipedia_processing.utils import (
+    ImageFormat,
     get_valid_usas_language_processing_wikipedia_codes,
     language_display_name,
+    resolve_image_path,
 )
 
 # Light-to-dark sequential ramp from the project's validated data-viz
@@ -586,6 +588,7 @@ def main(
     output_table_bottom: Annotated[Path | None, typer.Option(help="Optional path to write the bottom-tags distribution table to. Defaults to printing to the console.")] = None,
     output_table_summary: Annotated[Path | None, typer.Option(help="Optional path to write the tag-frequency summary table to. Defaults to printing to the console.")] = None,
     output_heatmap_major: Annotated[Path, typer.Option(help="Path to write the major tag distribution heatmap to.")] = Path("data/plots/major_tag_distribution_heatmap.png"),
+    image_format: Annotated[ImageFormat, typer.Option("-i", "--image-format", help="File format for the saved heatmap figure. Overrides the file extension of --output-heatmap-major.")] = ImageFormat.PNG,
 ) -> None:
     """Report per-language and macro-average USAS tag distributions.
 
@@ -624,6 +627,10 @@ def main(
               --output-table-top data/tables/top_tags.tex \\
               --output-table-bottom data/tables/bottom_tags.tex \\
               --output-table-summary data/tables/tag_summary.tex
+
+        Save the major tag heatmap as PDF instead of PNG:
+
+        $ uv run processing_scripts/usas_tag_distribution.py --image-format pdf
     """
     load_dotenv()
     hf_token = os.environ.get("HF_TOKEN")
@@ -649,6 +656,7 @@ def main(
     tag_percentages_by_language = {code: tag_percentages(counts) for code, counts in tag_counts_by_language.items()}
     major_tag_percentages_by_language = {code: major_tag_percentages(counts) for code, counts in tag_counts_by_language.items()}
 
+    output_heatmap_major = resolve_image_path(output_heatmap_major, image_format)
     plot_major_tag_heatmap(major_tag_percentages_by_language, output_heatmap_major)
     rprint(f"Wrote major tag distribution heatmap to {output_heatmap_major!r}")
 

@@ -3,6 +3,7 @@ import math
 import os
 import shutil
 import time
+from enum import Enum
 from importlib.resources import files
 from pathlib import Path
 from typing import Callable, Generator, TypedDict, cast
@@ -13,6 +14,32 @@ from datatrove.data import Document, DocumentsPipeline
 from datatrove.utils.logging import logger as data_trove_logger
 from yaml import Loader
 from yaml import load as yaml_load
+
+
+class ImageFormat(str, Enum):
+    """Supported file formats for a script's saved matplotlib figure(s)."""
+
+    PNG = "png"
+    PDF = "pdf"
+
+
+def resolve_image_path(path: Path, image_format: ImageFormat) -> Path:
+    """Set a path's file extension to match the chosen `ImageFormat`.
+
+    Args:
+        path: The output path; any existing suffix is replaced.
+        image_format: The target image format.
+
+    Returns:
+        `path` with its suffix set to `.{image_format.value}`.
+
+    Examples:
+        >>> resolve_image_path(Path("plot.png"), ImageFormat.PDF)
+        PosixPath('plot.pdf')
+        >>> resolve_image_path(Path("plot"), ImageFormat.PNG)
+        PosixPath('plot.png')
+    """
+    return path.with_suffix(f".{image_format.value}")
 
 
 def truncate_to_255_bytes(string_to_truncate: str) -> str:

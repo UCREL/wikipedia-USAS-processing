@@ -657,7 +657,7 @@ uv run processing_scripts/report_pipeline_document_funnel.py ./log_data \
     --view dropped --format latex --output-file ./data/tables/pipeline_funnel.tex --sort-by language
 
 # Article and Sentence token statistics
-uv run processing_scripts/token_count_distribution.py --split train --format latex --output-histogram-sentences data/plots/token_count_per_sentence_histogram.png --output-histogram-articles data/plots/token_count_per_article_histogram.png --output-table-sentences ./data/tables/token_count_per_sentence.tex --output-table-articles ./data/tables/token_count_per_article.tex
+uv run processing_scripts/token_count_distribution.py --split all --format latex --output-histogram-sentences data/plots/token_count_per_sentence_histogram.pdf --output-histogram-articles data/plots/token_count_per_article_histogram.pdf --output-table-sentences ./data/tables/token_count_per_sentence.tex --output-table-articles ./data/tables/token_count_per_article.tex -i pdf
 
     
 # Overall dataset statistics
@@ -670,7 +670,7 @@ uv run processing_scripts/dataset_statistics.py --hf-dataset-repo-id "ucrelnlp/M
 uv run processing_scripts/report_deduplication_loss.py --output-latex ./data/tables/de_duplication_using_wikipedia_article_id.tex
 
 # Tag distribution statistics
-uv run processing_scripts/usas_tag_distribution.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --hf-dataset-revision "main" --split all --top-bottom-count 5 --format latex --output-table-major ./data/tables/major_tag_distribution.tex --output-table-top ./data/tables/top_tags_distribution.tex --output-table-bottom ./data/tables/bottom_tags_distribution.tex --output-table-summary ./data/tables/tag_frequency_summary.tex --output-heatmap-major ./data/plots/major_tag_heatmap.png
+uv run processing_scripts/usas_tag_distribution.py --hf-dataset-repo-id "ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia" --hf-dataset-revision "main" --split all --top-bottom-count 5 --format latex --output-table-major ./data/tables/major_tag_distribution.tex --output-table-top ./data/tables/top_tags_distribution.tex --output-table-bottom ./data/tables/bottom_tags_distribution.tex --output-table-summary ./data/tables/tag_frequency_summary.tex --output-heatmap-major ./data/plots/major_tag_heatmap.pdf -i pdf
 ```
 
 
@@ -698,7 +698,7 @@ Run `--help` for the full list of options, including `--token-length`, `--max-to
 NOTE: the arguments used to produce the table and plot in the paper;
 
 ``` bash
-uv run processing_scripts/benchmark_da_spacy_model_speed.py --token-length 21 --max-tokens 100000 --num-points 8 --format plot --output data/plots/da_spacy_model_speed.png --latex-output data/tables/da_spacy_model_speed.tex
+uv run processing_scripts/benchmark_da_spacy_model_speed.py --token-length 21 --max-tokens 100000 --num-points 8 --format plot --output data/plots/da_spacy_model_speed.pdf --latex-output data/tables/da_spacy_model_speed.tex -i pdf
 ```
 
 ## License

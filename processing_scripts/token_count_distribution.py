@@ -32,8 +32,10 @@ from dotenv import load_dotenv
 from rich import print as rprint
 
 from wikipedia_processing.utils import (
+    ImageFormat,
     get_valid_usas_language_processing_wikipedia_codes,
     language_display_name,
+    resolve_image_path,
 )
 
 QUANTILES: tuple[float, ...] = (0.25, 0.50, 0.75, 0.90, 0.95, 0.99)
@@ -384,6 +386,7 @@ def main(
     hf_dataset_revision: Annotated[str, typer.Option("--hf-dataset-revision", help="Branch (or other revision) of the Hub dataset repo to read.")] = "main",
     split: Annotated[DatasetSplit, typer.Option("-s", "--split", help="Dataset split to compute statistics over. `all` combines `train` and `validation`.")] = DatasetSplit.train,
     table_format: Annotated[TableFormat, typer.Option("-f", "--format", help="Quantile table output format.")] = TableFormat.MARKDOWN,
+    image_format: Annotated[ImageFormat, typer.Option("-i", "--image-format", help="File format for the saved histogram figures. Overrides the file extension of --output-histogram-sentences/--output-histogram-articles.")] = ImageFormat.PNG,
     output_histogram_sentences: Annotated[Path, typer.Option(help="Path to write the tokens-per-sentence histogram to.")] = Path("data/plots/token_count_per_sentence_histogram.png"),
     output_histogram_articles: Annotated[Path, typer.Option(help="Path to write the tokens-per-article histogram to.")] = Path("data/plots/token_count_per_article_histogram.png"),
     output_table_sentences: Annotated[Path | None, typer.Option(help="Optional path to write the tokens-per-sentence quantile table to. Defaults to printing to the console.")] = None,
@@ -412,6 +415,10 @@ def main(
               --split all --format latex \\
               --output-table-sentences data/tables/sentence_quantiles.tex \\
               --output-table-articles data/tables/article_quantiles.tex
+
+        Save the histograms as PDF instead of PNG:
+
+        $ uv run processing_scripts/token_count_distribution.py --image-format pdf
     """
     load_dotenv()
     hf_token = os.environ.get("HF_TOKEN")
@@ -436,6 +443,8 @@ def main(
         article_counts_by_language[wikipedia_language_code] = combined_counts.article_token_counts
         rprint(f"{language_display_name(wikipedia_language_code)}: {len(combined_counts.article_token_counts):,} articles, {len(combined_counts.sentence_token_counts):,} sentences")
 
+    output_histogram_sentences = resolve_image_path(output_histogram_sentences, image_format)
+    output_histogram_articles = resolve_image_path(output_histogram_articles, image_format)
     plot_token_count_histogram(sentence_counts_by_language, "Tokens per sentence by language", "Tokens per sentence (log scale)", output_histogram_sentences)
     plot_token_count_histogram(article_counts_by_language, "Tokens per article by language", "Tokens per article (log scale)", output_histogram_articles)
     rprint(f"Wrote histograms to {output_histogram_sentences!r} and {output_histogram_articles!r}")

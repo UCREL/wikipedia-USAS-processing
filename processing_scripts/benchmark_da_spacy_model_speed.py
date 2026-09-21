@@ -30,6 +30,7 @@ from rich.console import Console
 from rich.table import Table
 
 from wikipedia_processing.models_install import pip_install_model
+from wikipedia_processing.utils import ImageFormat, resolve_image_path
 
 # Observed from log_data/da/post_processing/stats/00000.json:
 # "sentences" mean (documents' average sentence count) and
@@ -278,6 +279,10 @@ def main(
         Path,
         typer.Option(help="Path to write the comparison graph to (plot format only)."),
     ] = Path("da_spacy_model_speed.png"),
+    image_format: Annotated[
+        ImageFormat,
+        typer.Option("-i", "--image-format", help="File format for the saved comparison graph. Overrides the file extension of --output."),
+    ] = ImageFormat.PNG,
     latex_output: Annotated[
         Path | None,
         typer.Option(help="If set, also write the results table to this path as a LaTeX tabular, independent of --format."),
@@ -316,6 +321,7 @@ def main(
 
     match output_format:
         case OutputFormat.plot:
+            output = resolve_image_path(output, image_format)
             plot_results(sentence_counts, results, token_length, output)
             typer.echo(f"Wrote graph to {output}")
         case OutputFormat.table:
