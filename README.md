@@ -435,7 +435,7 @@ Some options worth knowing about (run `--help` for the full list):
 
 * The full major tag (first character of a USAS tag, e.g. `A3` and `A1` are both major tag `A`) distribution.
 * The top `--top-bottom-count` most common individual tags.
-* The bottom `--top-bottom-count` least common individual tags.
+* The bottom `--top-bottom-count` least common individual tags -- shown in scientific notation (e.g. `3.4×10⁻⁴`, or `$3.4 \times 10^{-4}$` for `--format latex`), since these percentages are usually too small for a single fixed decimal place to show meaningfully.
 * A five-number summary (`Min`, `P25`, `P50`, `P75`, `Max`) of how spread out individual tags' raw counts and percentages are within each language, with each cell showing both, e.g. `120 (12.0%)`.
 
 It also renders the major tag distribution as a PNG heatmap (one column per language plus `Macro Avg`, cells colored on a light-to-dark scale by percentage) -- rows are sorted alphabetically by tag in the heatmap, rather than ranked by macro-average percentage as in the table above.

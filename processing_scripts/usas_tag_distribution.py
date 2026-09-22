@@ -11,7 +11,9 @@ size):
 
 * The full major tag (first character of a USAS tag) distribution.
 * The top N and bottom N individual tags in the distribution, N configurable
-  via the CLI.
+  via the CLI. Bottom-tag percentages are shown in scientific notation, since
+  they are usually too small for a single fixed decimal place to show
+  meaningfully.
 * A five-number summary (min, 25th/50th/75th percentile, max) of how
   individual tags' percentages and raw counts are spread out.
 """
@@ -21,7 +23,7 @@ import os
 from collections import Counter
 from enum import Enum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Callable
 
 import matplotlib
 
@@ -359,13 +361,98 @@ def build_tag_summary_rows(
     return headers, rows
 
 
-def build_tag_distribution_rows(percentages_by_language: dict[str, dict[str, float]], tags: list[str]) -> tuple[list[str], list[list[str]]]:
+def format_percentage_fixed(value: float) -> str:
+    """Format a percentage with one fixed decimal place.
+
+    Args:
+        value: The percentage to format.
+
+    Returns:
+        `value` formatted to one decimal place, e.g. `"40.0"`.
+
+    Examples:
+        >>> format_percentage_fixed(40.0)
+        '40.0'
+    """
+    return f"{value:,.1f}"
+
+
+_SUPERSCRIPT_TRANSLATION = str.maketrans("0123456789-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁻")
+
+
+def format_superscript(number: int) -> str:
+    """Render an integer using unicode superscript characters.
+
+    Args:
+        number: The integer to render.
+
+    Returns:
+        `number`'s digits (and leading minus sign, if negative) as their
+        unicode superscript equivalents.
+
+    Examples:
+        >>> format_superscript(-4)
+        '⁻⁴'
+        >>> format_superscript(12)
+        '¹²'
+    """
+    return str(number).translate(_SUPERSCRIPT_TRANSLATION)
+
+
+def format_percentage_scientific(value: float, table_format: TableFormat) -> str:
+    r"""Format a percentage in scientific notation with a one-decimal-place mantissa.
+
+    Intended for the bottom tags table, where most percentages are too
+    small to show meaningfully with the one fixed decimal place used
+    elsewhere (`format_percentage_fixed`) -- they would all round to
+    `"0.0"`. `TableFormat.LATEX` renders real LaTeX math-mode syntax
+    (`\times 10^{...}`, compiling under any engine); other formats use a
+    unicode superscript exponent instead. Matches the rest of this script's
+    table cells in leaving off the trailing `"%"` -- that's implied by the
+    column, not repeated per cell.
+
+    Args:
+        value: The percentage to format. Exactly `0.0` is rendered as
+            `"0"`, since scientific notation has no finite exponent for zero.
+        table_format: Which notation to use for the exponent.
+
+    Returns:
+        The formatted percentage string.
+
+    Examples:
+        >>> format_percentage_scientific(0.00034, TableFormat.MARKDOWN)
+        '3.4×10⁻⁴'
+        >>> format_percentage_scientific(0.00034, TableFormat.LATEX)
+        '$3.4 \\times 10^{-4}$'
+        >>> format_percentage_scientific(0.0, TableFormat.MARKDOWN)
+        '0'
+    """
+    if value == 0.0:
+        return "0"
+    mantissa, exponent_str = f"{value:.1e}".split("e")
+    exponent = int(exponent_str)
+    match table_format:
+        case TableFormat.LATEX:
+            return rf"${mantissa} \times 10^{{{exponent}}}$"
+        case TableFormat.MARKDOWN:
+            return f"{mantissa}×10{format_superscript(exponent)}"
+
+
+def build_tag_distribution_rows(
+    percentages_by_language: dict[str, dict[str, float]],
+    tags: list[str],
+    format_value: Callable[[float], str] = format_percentage_fixed,
+) -> tuple[list[str], list[list[str]]]:
     """Build headers and string rows for a tag distribution table.
 
     Args:
         percentages_by_language: Mapping of Wikipedia language code to that
             language's tag -> percentage-of-occurrences mapping.
         tags: Which tags to include as rows, and their order.
+        format_value: How to format each percentage cell (per-language and
+            "Macro Avg" alike). Defaults to one fixed decimal place; pass
+            e.g. `format_percentage_scientific` for tags too rare for that
+            to show meaningfully.
 
     Returns:
         A `(headers, rows)` pair: one column per language (sorted by display
@@ -387,7 +474,7 @@ def build_tag_distribution_rows(percentages_by_language: dict[str, dict[str, flo
     for tag in tags:
         per_language_values = [percentages_by_language[code].get(tag, 0.0) for code in language_codes]
         macro_average = sum(per_language_values) / len(per_language_values) if per_language_values else 0.0
-        rows.append([tag, *(f"{value:,.1f}" for value in per_language_values), f"{macro_average:,.1f}"])
+        rows.append([tag, *(format_value(value) for value in per_language_values), format_value(macro_average)])
     return headers, rows
 
 
@@ -602,7 +689,10 @@ def main(
 
     * The full major tag (first character of a USAS tag) distribution.
     * The top `--top-bottom-count` most common individual tags.
-    * The bottom `--top-bottom-count` least common individual tags.
+    * The bottom `--top-bottom-count` least common individual tags -- shown
+      in scientific notation, since these percentages are usually too
+      small to show meaningfully with the one fixed decimal place used
+      elsewhere (they would otherwise all round to `0.0`).
     * A five-number summary (min, 25th/50th/75th percentile, max) of how
       individual tags' percentages and raw counts are spread out.
 
@@ -672,7 +762,9 @@ def main(
     write_or_print_table(render_table(top_headers, top_rows, alignments, table_format), output_table_top, "top tags")
 
     bottom_tags = rank_tags(tag_macro_averages, descending=False)[:top_bottom_count]
-    bottom_headers, bottom_rows = build_tag_distribution_rows(tag_percentages_by_language, bottom_tags)
+    bottom_headers, bottom_rows = build_tag_distribution_rows(
+        tag_percentages_by_language, bottom_tags, format_value=lambda value: format_percentage_scientific(value, table_format)
+    )
     write_or_print_table(render_table(bottom_headers, bottom_rows, alignments, table_format), output_table_bottom, "bottom tags")
 
     percentage_summary_by_language = {code: five_number_summary(list(percentages.values())) for code, percentages in tag_percentages_by_language.items()}
