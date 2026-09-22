@@ -110,37 +110,43 @@ Each row is a single article, unique per `id`/`page_id` within a language config
 split per language into `train` and `validation` subsets (see below).
 
 * `text` - the processed article text.
-* `id` -  unique identifier for the article, e.g. `dawiki/1171348`
-* `page_id` - the Wikipedia page ID `1171348`
+* `id` -  unique identifier for the article, e.g. `enwiki/23146210`
+* `page_id` - the Wikipedia page ID `23146210`
 * `title` - Article title.
-* `url` - the article URL, e.g. `https://da.wikipedia.org/wiki/El_Salvador_ved_sommer-OL_2024`
-* `version`- (integer) revision/version identifier of the page (comes from [HuggingFaceFW finewiki](https://huggingface.co/datasets/HuggingFaceFW/finewiki)) `1167219203`
+* `url` - the article URL, e.g. `https://en.wikipedia.org/wiki/Bill_Gutteron`
+* `version`- (integer) revision/version identifier of the page (comes from [HuggingFaceFW finewiki](https://huggingface.co/datasets/HuggingFaceFW/finewiki)) `1230438345`
 * `start_end_sentence_character_indexes` - list of `[start, end]` character offsets for each sentence, e.g. `[[0, 10], [11, 15]]` the first sentence is between `text[0:10]`.
 * `tokens` - list of a list of tokens whereby the inner list represents the tokens for a given sentence, e.g. `tokens[0]` would contain all of the tokens in the first sentence.
 * `tags` - list of a list of a list of USAS tags that were predicted by the PyMUSAS Rule Based languages specific tagger. The inner list represents the most likely USAS tags for the given token, e.g. `tags[0][0]` will contain a list of most likely USAS tags for the first token in the first sentence, in most cases it will only contain one USAS tag. When it contains more than one USAS tag this represents a token in which the meaning is a combination of the given predicted USAS tags. Some tokens will contain no USAS tags as the Rule Based tagger cannot make prediction for all tokens. Tags within each group are de-duplicated.
 * `other_tags` - list of a list of a list of a list of USAS tags, one level deeper than `tags`, containing every other valid USAS tag group for a token that was **not** its most likely tag group, e.g. `other_tags[0][0]` will contain a list of the other valid USAS tag groups for the first token in the first sentence, and `other_tags[0][0][0]` the tags within the first of those groups. Keeping each group as its own inner list (rather than merging them together) preserves which tags PyMUSAS considered part of the same combined meaning. Most tokens will contain no other USAS tag groups, in which case the outer list is empty. As with `tags`, tags within each group are de-duplicated. They are ordered by the most likely USAS tag group.
 * `mwes` - list of a list of MWE labels that were predicted by the PyMUSAS Rule Based languages specific tagger, these always relate to the most likely USAS tags. The MWE labels denote at the sentence level which tokens are MWEs, e.g. `mwes[0][0]` represent all of the MWE labels for the first token in the first sentence, if it contains `1` and `mwes[0][1]` also contains `1` then the first token and second token in the first sentence are a MWE. If more than one label occurs then MWEs are overlapping which should not be the case with PyMUSAS taggers. MWEs can be dis-continuous. The index of MWE labels always start at 1 and reset per sentence, e.g. the first sentence can contain a MWE label of `1` and so can the second sentence, but they will be different MWEs as MWEs are constrained to occur within a single sentence; they cannot span sentence boundaries.
 
-The data is stored as [zstd](https://github.com/facebook/zstd)-compressed
-[Parquet](https://parquet.apache.org/) files.
+The data is stored as [zstd](https://github.com/facebook/zstd)-compressed [Parquet](https://parquet.apache.org/) files.
 
-Example of a record (shown as JSON for readability):
+Example of a record (shown as JSON for readability), taken directly from the English config of this dataset (`enwiki/23146210`, the full [Bill Gutteron](https://en.wikipedia.org/wiki/Bill_Gutteron) article). **Note** that `text` reflects the article revision captured in the underlying FineWiki snapshot (June 2024 version of the article) — the live Wikipedia article has since been substantially expanded, so it is now much longer than the short, complete example shown here:
 
 ``` JSON
 {
-  "text": "El Salvador deltog i sommer-OL 2024 i Paris.",
-  "id": "dawiki/1171348",
-  "page_id": 1171348,
-  "title": "El Salvador ved sommer-OL 2024",
-  "url": "https://da.wikipedia.org/wiki/El_Salvador_ved_sommer-OL_2024",
-  "version": 1167219203,
-  "start_end_sentence_character_indexes": [[0, 45]],
-  "tokens": [["El", "Salvador", "deltog", "i", "sommer-OL", "2024", "i", "Paris", "."]],
-  "tags": [[["Z2"], ["Z2"], ["M6"], ["Z5"], ["K5.1"], ["T1.3"], ["Z5"], ["Z2"], ["Z9"]]],
-  "other_tags": [[[], [], [], [], [], [], [], [], []]],
-  "mwes": [[1, 1, 0, 0, 0, 0, 0, 0, 0]]
+  "text": "Bill Gutteron\n\nWilliam Alexander Gutteron (November 26, 1899 – May 30, 1987) was a professional football player in the National Football League (NFL). He made his NFL debut in 1926 with the Los Angeles Buccaneers. He played only one season in the league. A quarterback, Gutteron played college football for the Nevada Wolf Pack.\n",
+  "id": "enwiki/23146210",
+  "page_id": 23146210,
+  "title": "Bill Gutteron",
+  "url": "https://en.wikipedia.org/wiki/Bill_Gutteron",
+  "version": 1230438345,
+  "start_end_sentence_character_indexes": [[0, 150], [151, 213], [214, 254], [255, 329]],
+  "tokens": [["Bill", "Gutteron", "\n\n", "William", "Alexander", "Gutteron", "(", "November", "26", ",", "1899", "–", "May", "30", ",", "1987", ")", "was", "a", "professional", "football", "player", "in", "the", "National", "Football", "League", "(", "NFL", ")", "."], ["He", "made", "his", "NFL", "debut", "in", "1926", "with", "the", "Los", "Angeles", "Buccaneers", "."], ["He", "played", "only", "one", "season", "in", "the", "league", "."], ["A", "quarterback", ",", "Gutteron", "played", "college", "football", "for", "the", "Nevada", "Wolf", "Pack", "."]],
+  "tags": [[["Z1"], ["Z1"], [], ["Z1"], ["Z1"], ["Z1"], ["Z9"], ["Z2"], ["Z2"], ["Z9"], ["N1"], ["Z9"], ["Z2"], ["Z2"], ["Z9"], ["N1"], ["Z9"], ["A3"], ["Z5"], ["I3.2"], ["K5.1", "S2"], ["K5.1", "S2"], ["Z5"], ["Z5"], ["Z1"], ["Z1"], ["Z1"], ["Z9"], ["G3"], ["Z9"], ["Z9"]], [["Z8"], ["A5.4"], ["A5.4"], ["T1.3"], ["T1.3"], ["Z5"], ["N1"], ["Z5"], ["Z5"], ["Z1"], ["Z1"], ["Z1"], ["Z9"]], [["Z8"], ["K1"], ["A14"], ["N1"], ["T1.3"], ["Z5"], ["Z5"], ["S5"], ["Z9"]], [["Z5"], [], ["Z9"], [], ["K1"], ["P1", "H1"], ["K5.2"], ["Z5"], ["Z5"], ["Z1"], ["Z1"], ["Z1"], ["Z9"]]],
+  "other_tags": [[[["Z3"]], [["Z3"]], [], [["Z3"]], [["Z3"]], [["Z3"]], [], [["Z1"], ["T1.3"]], [["Z1"], ["T1.3"]], [], [], [], [["Z1"], ["T1.3"]], [["Z1"], ["T1.3"]], [], [], [], [["Z5"]], [], [["I3.1"], ["X9.1"], ["A5.1"]], [], [], [], [], [["Z3"]], [["Z3"]], [["Z3"]], [], [], [], []], [[], [], [], [], [], [], [], [], [], [["Z3"]], [["Z3"]], [["Z3"]], []], [[], [["K5.1"], ["K5.2"], ["K2"], ["K3"], ["A1.1.1"], ["K6"]], [], [["T3"], ["T1.2"]], [], [], [], [["K5.1", "S5"], ["S7.3"], ["N3.3"]], []], [[], [], [], [], [["K5.1"], ["K5.2"], ["K2"], ["K3"], ["A1.1.1"], ["K6"]], [], [], [], [], [["Z3"]], [["Z3"]], [["Z3"]], []]],
+  "mwes": [[[1], [1], [], [2], [2], [2], [], [3], [3], [], [], [], [4], [4], [], [], [], [], [], [], [5], [5], [], [], [6], [6], [6], [], [], [], []], [[], [1], [1], [2], [2], [], [], [], [], [3], [3], [3], []], [[], [], [], [], [], [], [], [], []], [[], [], [], [], [], [], [], [], [], [1], [1], [1], []]]
 }
 ```
+
+The first sentence contains six MWEs: `["Bill", "Gutteron"]` (label `1`), `["William",
+"Alexander", "Gutteron"]` (label `2`), `["November", "26"]` (label `3`), `["May", "30"]` (label
+`4`), `["football", "player"]` (label `5`), and `["National", "Football", "League"]` (label `6`).
+Labels reset per sentence, so the second sentence starts again from `1` with its own three MWEs:
+`["made", "his"]` (label `1`), `["NFL", "debut"]` (label `2`), and `["Los", "Angeles",
+"Buccaneers"]` (label `3`).
 
 ### Train/validation split
 
