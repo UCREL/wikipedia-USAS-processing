@@ -4,7 +4,7 @@ This repository contains various [DataTrove](https://github.com/huggingface/data
 
 For more information on the filtering and processing, see the [filtering and processing section below](#filtering-and-processing) and for more information about the data we use see [the data section below.](#data)
 
-The commands we ran to process the data for the journal paper can be found in [the commands used to create the original dataset section below.](#commands-used-to-create-the-original-ucrelnlpmultilingual-usas-labelled-silver-wikipedia-dataset)
+The commands we ran to process the data for the journal paper can be found in [the commands used to create the original dataset section below.](#commands-used-to-create-the-original-ucrelnlpmultilingual-usas-labelled-silver-wikipedia-dataset). The original dataset created for the journal paper can be found at [ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia](https://huggingface.co/datasets/ucrelnlp/Multilingual-USAS-Labelled-Silver-Wikipedia).
 
 
 ## Setup
