@@ -110,36 +110,16 @@ Each row is a single article, unique per `id`/`page_id` within a language config
 split per language into `train` and `validation` subsets (see below).
 
 * `text` - the processed article text.
-* `id` - unique identifier for the article, e.g. `dawiki/1171348`.
-* `page_id` - the Wikipedia page ID, e.g. `1171348`.
-* `title` - the article title.
-* `url` - the article URL, e.g. `https://da.wikipedia.org/wiki/El_Salvador_ved_sommer-OL_2024`.
-* `version` (int|string) - revision/version identifier of the page, as provided by
-  [`HuggingFaceFW/finewiki`](https://huggingface.co/datasets/HuggingFaceFW/finewiki), e.g.
-  `1167219203`.
-* `start_end_sentence_character_indexes` - list of `[start, end]` character offsets for each
-  sentence, e.g. `[[0, 10], [11, 15]]` — the first sentence is `text[0:10]`.
-* `tokens` - list of a list of tokens, where the inner list is the tokens for a given sentence,
-  e.g. `tokens[0]` contains all tokens in the first sentence.
-* `tags` - list of a list of a list of USAS tags predicted by the PyMUSAS rule-based tagger. The
-  innermost list holds the most likely USAS tag(s) for a given token, e.g. `tags[0][0]` is the
-  most likely USAS tag(s) for the first token of the first sentence — usually a single tag, but
-  more than one when the token's meaning is a combination of the predicted tags. Some tokens have
-  no USAS tags, as the rule-based tagger cannot make a prediction for every token. Tags within
-  each group are de-duplicated after any `tag_mapper` renaming is applied.
-* `other_tags` - list of a list of a list of a list of USAS tags, one level deeper than `tags`,
-  containing every other valid USAS tag group for a token that was **not** its most likely tag
-  group, e.g. `other_tags[0][0]` is a list of the other valid tag groups for the first token of
-  the first sentence, and `other_tags[0][0][0]` the tags within the first of those groups. Each
-  group is kept separate, rather than merged together, to preserve which tags PyMUSAS considered
-  part of the same combined meaning. Most tokens have no other tag groups, in which case the
-  outer list is empty. As with `tags`, tags within each group are de-duplicated after any
-  `tag_mapper` renaming is applied.
-* `mwes` - list of a list of MWE labels predicted by the PyMUSAS rule-based tagger, relating to
-  the most likely USAS tags. Labels denote, at the sentence level, which tokens form an MWE, e.g.
-  if `mwes[0][0]` and `mwes[0][1]` both contain `1`, the first and second tokens of the first
-  sentence are part of the same MWE. MWEs can be discontinuous but should not overlap. MWE label
-  indexes start at `1` and reset per sentence — MWEs cannot span sentence boundaries.
+* `id` -  unique identifier for the article, e.g. `dawiki/1171348`
+* `page_id` - the Wikipedia page ID `1171348`
+* `title` - Article title.
+* `url` - the article URL, e.g. `https://da.wikipedia.org/wiki/El_Salvador_ved_sommer-OL_2024`
+* `version`- (integer) revision/version identifier of the page (comes from [HuggingFaceFW finewiki](https://huggingface.co/datasets/HuggingFaceFW/finewiki)) `1167219203`
+* `start_end_sentence_character_indexes` - list of `[start, end]` character offsets for each sentence, e.g. `[[0, 10], [11, 15]]` the first sentence is between `text[0:10]`.
+* `tokens` - list of a list of tokens whereby the inner list represents the tokens for a given sentence, e.g. `tokens[0]` would contain all of the tokens in the first sentence.
+* `tags` - list of a list of a list of USAS tags that were predicted by the PyMUSAS Rule Based languages specific tagger. The inner list represents the most likely USAS tags for the given token, e.g. `tags[0][0]` will contain a list of most likely USAS tags for the first token in the first sentence, in most cases it will only contain one USAS tag. When it contains more than one USAS tag this represents a token in which the meaning is a combination of the given predicted USAS tags. Some tokens will contain no USAS tags as the Rule Based tagger cannot make prediction for all tokens. Tags within each group are de-duplicated.
+* `other_tags` - list of a list of a list of a list of USAS tags, one level deeper than `tags`, containing every other valid USAS tag group for a token that was **not** its most likely tag group, e.g. `other_tags[0][0]` will contain a list of the other valid USAS tag groups for the first token in the first sentence, and `other_tags[0][0][0]` the tags within the first of those groups. Keeping each group as its own inner list (rather than merging them together) preserves which tags PyMUSAS considered part of the same combined meaning. Most tokens will contain no other USAS tag groups, in which case the outer list is empty. As with `tags`, tags within each group are de-duplicated. They are ordered by the most likely USAS tag group.
+* `mwes` - list of a list of MWE labels that were predicted by the PyMUSAS Rule Based languages specific tagger, these always relate to the most likely USAS tags. The MWE labels denote at the sentence level which tokens are MWEs, e.g. `mwes[0][0]` represent all of the MWE labels for the first token in the first sentence, if it contains `1` and `mwes[0][1]` also contains `1` then the first token and second token in the first sentence are a MWE. If more than one label occurs then MWEs are overlapping which should not be the case with PyMUSAS taggers. MWEs can be dis-continuous. The index of MWE labels always start at 1 and reset per sentence, e.g. the first sentence can contain a MWE label of `1` and so can the second sentence, but they will be different MWEs as MWEs are constrained to occur within a single sentence; they cannot span sentence boundaries.
 
 The data is stored as [zstd](https://github.com/facebook/zstd)-compressed
 [Parquet](https://parquet.apache.org/) files.
@@ -166,8 +146,8 @@ Example of a record (shown as JSON for readability):
 
 Each language's documents are split into `train` and `validation` subsets, written to separate
 `train`/`validation` subfolders. The validation split is capped at
-whichever is reached first: a percentage of the language's documents, or a fixed maximum number of
-documents — this keeps under-resourced languages (some have as few as ~200 articles) at a
+whichever is reached first: a percentage of the language's documents (10%), or a fixed maximum number of
+documents (20 documents) — this keeps under-resourced languages (some have as few as ~200 articles) at a
 sensible percentage-based split, while bounding well-resourced languages' validation set to a sane
 absolute size. The split assignment is deterministic (hashed from each document's page ID), so
 re-running the pipeline reproduces the same split.
