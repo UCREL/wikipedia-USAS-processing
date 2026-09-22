@@ -160,8 +160,202 @@ re-running the pipeline reproduces the same split.
 
 ## Dataset Statistics
 
-The table below shows per language the number of entries/articles that are either Good or Featured (Total), Good, or Featured:
+Statistics for the full dataset (every language config combined), generated using the
+`dataset_statistics.py`, `token_count_distribution.py`, and `usas_tag_distribution.py` scripts from
+the [processing GitHub repository](https://github.com/UCREL/wikipedia-USAS-processing). See the repositories README and the journal paper for more information about these tables.
 
+### Overview
+
+| Language | Articles | Sentences (M) | Tokens (M) | Labelled Tokens (M) | Labels per Labelled Token | Multi Tag Membership (%) | Unique Tags | MWEs (M) | MWE Tokens (%) |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Chinese | 2,807 | 0.677 | 15.613 | 10.111 | 4.48 | 21.13 | 215 | 0.048 | 0.62 |
+| Danish | 187 | 0.068 | 1.416 | 1.070 | 1.69 | 13.41 | 213 | 0.036 | 6.10 |
+| Dutch | 378 | 0.158 | 2.759 | 1.853 | 2.37 | 10.90 | 211 | 0.000 | 0.00 |
+| English | 49,218 | 7.138 | 182.840 | 170.129 | 1.81 | 11.10 | 217 | 13.793 | 17.57 |
+| Finnish | 865 | 0.221 | 3.428 | 2.507 | 1.85 | 16.14 | 209 | 0.000 | 0.00 |
+| Italian | 1,161 | 0.335 | 9.640 | 7.904 | 2.04 | 12.01 | 219 | 0.096 | 2.13 |
+| Portuguese | 3,469 | 0.764 | 17.886 | 13.875 | 2.78 | 15.24 | 218 | 0.133 | 1.61 |
+| Spanish | 4,581 | 0.920 | 30.150 | 24.164 | 1.89 | 1.03 | 219 | 0.067 | 0.47 |
+| **Total** | **62,666** | **10.281** | **263.732** | **231.611** | **2.01** | **11.52** | **220** | **14.173** | **12.49** |
+
+"Labelled Tokens" are tokens with at least one USAS tag; "Labels per Labelled Token" and "Multi Tag
+Membership (%)" count labels from both the `tags` and `other_tags` columns, since both are positive
+labels when training (see [Dataset Structure](#dataset-structure) above). "MWE Tokens (%)" is the
+percentage of tokens that are part of at least one Multi-Word Expression.
+
+<details>
+
+<summary>Per-split breakdown (train / validation / total)</summary>
+
+| Language | Split | Articles | Sentences (M) | Tokens (M) | Labelled Tokens (M) | Labels per Labelled Token | Multi Tag Membership (%) | Unique Tags | MWEs (M) | MWE Tokens (%) |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Chinese | train | 2,787 | 0.670 | 15.463 | 10.010 | 4.48 | 21.12 | 215 | 0.047 | 0.62 |
+| Chinese | validation | 20 | 0.007 | 0.149 | 0.100 | 4.53 | 22.01 | 214 | 0.000 | 0.64 |
+| Chinese | total | 2,807 | 0.677 | 15.613 | 10.111 | 4.48 | 21.13 | 215 | 0.048 | 0.62 |
+| Danish | train | 168 | 0.062 | 1.278 | 0.968 | 1.69 | 13.42 | 213 | 0.033 | 6.14 |
+| Danish | validation | 19 | 0.006 | 0.138 | 0.102 | 1.68 | 13.37 | 211 | 0.003 | 5.74 |
+| Danish | total | 187 | 0.068 | 1.416 | 1.070 | 1.69 | 13.41 | 213 | 0.036 | 6.10 |
+| Dutch | train | 358 | 0.149 | 2.599 | 1.743 | 2.37 | 10.87 | 211 | 0.000 | 0.00 |
+| Dutch | validation | 20 | 0.009 | 0.160 | 0.110 | 2.39 | 11.38 | 211 | 0.000 | 0.00 |
+| Dutch | total | 378 | 0.158 | 2.759 | 1.853 | 2.37 | 10.90 | 211 | 0.000 | 0.00 |
+| English | train | 49,198 | 7.134 | 182.734 | 170.030 | 1.81 | 11.10 | 217 | 13.785 | 17.57 |
+| English | validation | 20 | 0.004 | 0.106 | 0.099 | 1.76 | 11.05 | 212 | 0.008 | 17.65 |
+| English | total | 49,218 | 7.138 | 182.840 | 170.129 | 1.81 | 11.10 | 217 | 13.793 | 17.57 |
+| Finnish | train | 845 | 0.216 | 3.356 | 2.454 | 1.85 | 16.21 | 209 | 0.000 | 0.00 |
+| Finnish | validation | 20 | 0.005 | 0.072 | 0.053 | 1.82 | 12.95 | 207 | 0.000 | 0.00 |
+| Finnish | total | 865 | 0.221 | 3.428 | 2.507 | 1.85 | 16.14 | 209 | 0.000 | 0.00 |
+| Italian | train | 1,141 | 0.329 | 9.485 | 7.776 | 2.04 | 11.99 | 219 | 0.094 | 2.13 |
+| Italian | validation | 20 | 0.005 | 0.154 | 0.127 | 2.11 | 12.83 | 216 | 0.002 | 2.25 |
+| Italian | total | 1,161 | 0.335 | 9.640 | 7.904 | 2.04 | 12.01 | 219 | 0.096 | 2.13 |
+| Portuguese | train | 3,449 | 0.760 | 17.784 | 13.795 | 2.78 | 15.24 | 218 | 0.132 | 1.61 |
+| Portuguese | validation | 20 | 0.004 | 0.102 | 0.080 | 2.74 | 16.67 | 215 | 0.001 | 1.45 |
+| Portuguese | total | 3,469 | 0.764 | 17.886 | 13.875 | 2.78 | 15.24 | 218 | 0.133 | 1.61 |
+| Spanish | train | 4,561 | 0.917 | 30.044 | 24.078 | 1.89 | 1.03 | 219 | 0.067 | 0.47 |
+| Spanish | validation | 20 | 0.003 | 0.106 | 0.086 | 1.90 | 1.13 | 219 | 0.000 | 0.52 |
+| Spanish | total | 4,581 | 0.920 | 30.150 | 24.164 | 1.89 | 1.03 | 219 | 0.067 | 0.47 |
+| **Total** | **train** | **62,507** | **10.237** | **262.745** | **230.853** | **2.00** | **11.51** | **220** | **14.158** | **12.52** |
+| **Total** | **validation** | **159** | **0.044** | **0.987** | **0.758** | **2.39** | **14.21** | **220** | **0.014** | **3.35** |
+| **Total** | **total** | **62,666** | **10.281** | **263.732** | **231.611** | **2.01** | **11.52** | **220** | **14.173** | **12.49** |
+
+</details>
+
+### Token Length Distribution
+
+Quantiles of token counts per sentence and per article (`train` + `validation` combined), plus the
+unweighted average across languages (`Macro Avg`).
+
+**Tokens per sentence**
+
+| Language | P25 | P50 | P75 | P90 | P95 | P99 | Max |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Chinese | 9.0 | 19.0 | 31.0 | 45.0 | 57.0 | 93.0 | 2,604.0 |
+| Danish | 11.0 | 19.0 | 28.0 | 37.0 | 44.0 | 65.0 | 708.0 |
+| Dutch | 10.0 | 16.0 | 24.0 | 31.0 | 37.0 | 51.4 | 355.0 |
+| English | 15.0 | 23.0 | 32.0 | 43.0 | 51.0 | 76.0 | 49,287.0 |
+| Finnish | 9.0 | 13.0 | 18.0 | 24.0 | 29.0 | 46.0 | 1,032.0 |
+| Italian | 16.0 | 25.0 | 37.0 | 51.0 | 61.0 | 91.0 | 2,241.0 |
+| Portuguese | 11.0 | 21.0 | 32.0 | 44.0 | 53.0 | 76.0 | 927.0 |
+| Spanish | 19.0 | 28.0 | 40.0 | 55.0 | 68.0 | 111.0 | 5,629.0 |
+| **Macro Avg** | **12.5** | **20.5** | **30.2** | **41.2** | **50.0** | **76.2** | **7,847.9** |
+
+**Tokens per article**
+
+| Language | P25 | P50 | P75 | P90 | P95 | P99 | Max |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Chinese | 2,805.0 | 4,249.0 | 6,642.0 | 10,834.2 | 14,255.2 | 22,480.4 | 50,943.0 |
+| Danish | 4,754.5 | 6,948.0 | 9,420.5 | 13,227.4 | 14,707.0 | 18,841.6 | 23,163.0 |
+| Dutch | 4,484.8 | 6,613.5 | 9,342.0 | 12,636.8 | 14,737.7 | 19,327.8 | 22,395.0 |
+| English | 1,661.0 | 2,701.0 | 4,640.0 | 7,596.0 | 10,019.0 | 15,595.6 | 190,775.0 |
+| Finnish | 2,174.0 | 3,244.0 | 4,694.0 | 6,475.4 | 7,872.4 | 14,011.9 | 134,271.0 |
+| Italian | 4,365.0 | 7,181.0 | 11,134.0 | 15,575.0 | 17,940.0 | 23,001.0 | 45,295.0 |
+| Portuguese | 1,856.0 | 3,517.0 | 7,009.0 | 11,653.6 | 14,543.8 | 19,877.7 | 60,246.0 |
+| Spanish | 2,735.0 | 4,716.0 | 8,336.0 | 13,590.0 | 17,705.0 | 29,546.2 | 132,178.0 |
+| **Macro Avg** | **3,104.4** | **4,896.2** | **7,652.2** | **11,448.5** | **13,972.5** | **20,335.3** | **82,408.2** |
+
+### USAS Tag Distribution
+
+Tags are counted from both the `tags` and `other_tags` columns (`train` + `validation` combined),
+since both are positive labels when training.
+
+**Major tag distribution (%)** — percentage share of the first character of each USAS tag (e.g. `A3`
+and `A1` both count towards major tag `A`):
+
+| Tag | Chinese | Danish | Dutch | English | Finnish | Italian | Portuguese | Spanish | Macro Avg |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Z | 13.2 | 33.9 | 27.8 | 38.8 | 26.0 | 28.1 | 24.3 | 39.9 | 29.0 |
+| A | 17.5 | 16.0 | 17.9 | 14.7 | 18.9 | 14.1 | 15.8 | 15.2 | 16.2 |
+| S | 12.0 | 7.7 | 8.3 | 7.5 | 11.0 | 11.0 | 10.5 | 8.5 | 9.6 |
+| N | 9.0 | 7.7 | 7.8 | 7.0 | 8.9 | 9.3 | 8.1 | 7.1 | 8.1 |
+| M | 6.1 | 5.7 | 7.1 | 3.6 | 6.2 | 5.5 | 5.9 | 3.1 | 5.4 |
+| T | 4.2 | 6.0 | 4.9 | 5.9 | 4.4 | 3.9 | 5.4 | 5.3 | 5.0 |
+| X | 6.3 | 4.2 | 4.3 | 3.7 | 4.3 | 6.3 | 3.7 | 3.9 | 4.6 |
+| Q | 5.3 | 3.6 | 3.2 | 3.4 | 3.1 | 4.4 | 3.9 | 2.6 | 3.7 |
+| O | 4.4 | 2.1 | 4.4 | 2.4 | 3.0 | 3.1 | 4.4 | 2.2 | 3.3 |
+| G | 3.6 | 2.3 | 2.5 | 2.1 | 2.1 | 2.2 | 3.4 | 2.4 | 2.6 |
+| K | 2.9 | 1.8 | 1.9 | 2.6 | 2.7 | 1.3 | 2.8 | 1.4 | 2.2 |
+| I | 3.0 | 1.6 | 1.7 | 1.8 | 1.7 | 1.6 | 2.4 | 1.6 | 1.9 |
+| B | 2.9 | 1.2 | 1.9 | 1.4 | 1.8 | 2.1 | 2.0 | 1.0 | 1.8 |
+| E | 2.3 | 1.4 | 1.4 | 1.1 | 1.1 | 1.1 | 1.2 | 1.1 | 1.3 |
+| H | 2.0 | 1.7 | 1.0 | 1.0 | 1.0 | 1.1 | 1.5 | 0.9 | 1.3 |
+| F | 1.4 | 0.6 | 1.0 | 0.6 | 0.5 | 1.4 | 0.9 | 0.4 | 0.9 |
+| W | 0.9 | 0.7 | 0.6 | 0.5 | 1.2 | 0.8 | 0.9 | 0.8 | 0.8 |
+| L | 0.9 | 0.6 | 0.8 | 0.7 | 1.0 | 0.7 | 0.6 | 1.0 | 0.8 |
+| P | 1.0 | 0.6 | 0.7 | 0.5 | 0.4 | 0.9 | 1.0 | 1.0 | 0.8 |
+| C | 0.7 | 0.3 | 0.5 | 0.4 | 0.4 | 0.7 | 0.5 | 0.3 | 0.5 |
+| Y | 0.6 | 0.5 | 0.2 | 0.3 | 0.3 | 0.3 | 0.6 | 0.3 | 0.4 |
+
+**5 most frequent individual tags (%)**
+
+The USAS tag categories are described and defined within the [Introduction to the USAS category system](https://ucrel.lancs.ac.uk/usas/usas_guide.pdf), of which this can to some degree explain the reason for these tags being in the top-5;
+* `Z5` - Prepositions/adverbs/conjunctions etc.
+* `Z9` - Punctuation
+* `Z8` - Pronouns
+* `N1` - Numbers
+* `S2` - People
+
+| Tag | Chinese | Danish | Dutch | English | Finnish | Italian | Portuguese | Spanish | Macro Avg |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Z5 | 4.5 | 15.8 | 17.9 | 15.9 | 7.7 | 15.7 | 14.1 | 25.8 | 14.7 |
+| Z9 | 6.6 | 9.4 | 6.7 | 7.8 | 10.6 | 7.4 | 5.9 | 7.7 | 7.8 |
+| Z8 | 0.6 | 2.9 | 1.6 | 1.9 | 2.8 | 2.9 | 2.8 | 4.0 | 2.4 |
+| N1 | 2.3 | 2.5 | 1.8 | 2.4 | 2.6 | 2.4 | 2.5 | 3.0 | 2.4 |
+| S2 | 2.6 | 1.7 | 1.5 | 1.6 | 3.1 | 2.1 | 2.5 | 1.8 | 2.1 |
+
+**5 least frequent individual tags (%)** — shown in scientific notation, as these percentages are
+usually too small for a fixed decimal place to show meaningfully:
+
+| Tag | Chinese | Danish | Dutch | English | Finnish | Italian | Portuguese | Spanish | Macro Avg |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| X9 | 4.3×10⁻⁴ | 0 | 0 | 2.6×10⁻⁴ | 1.0×10⁻³ | 1.6×10⁻² | 0 | 3.0×10⁻² | 6.0×10⁻³ |
+| O4 | 1.8×10⁻⁵ | 5.5×10⁻⁵ | 0 | 3.0×10⁻⁵ | 0 | 2.7×10⁻⁴ | 2.2×10⁻⁴ | 5.7×10⁻² | 7.2×10⁻³ |
+| G2 | 0 | 0 | 0 | 1.1×10⁻⁵ | 0 | 6.2×10⁻⁴ | 1.1×10⁻⁴ | 8.8×10⁻² | 1.1×10⁻² |
+| Q2 | 3.6×10⁻⁴ | 1.1×10⁻⁴ | 0 | 1.3×10⁻⁵ | 0 | 5.0×10⁻⁵ | 5.4×10⁻⁴ | 9.0×10⁻² | 1.1×10⁻² |
+| A1.5 | 8.3×10⁻³ | 0 | 2.1×10⁻³ | 9.4×10⁻⁶ | 0 | 1.3×10⁻² | 1.4×10⁻³ | 7.1×10⁻² | 1.2×10⁻² |
+
+**Tag frequency spread** — five-number summary (raw count, with percentage in brackets) of how
+spread out individual tags' frequencies are within each language:
+
+| Statistic | Chinese | Danish | Dutch | English | Finnish | Italian | Portuguese | Spanish | Macro Avg |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Min | 8 (0.0%) | 1 (0.0%) | 91 (0.0%) | 29 (0.0%) | 47 (0.0%) | 8 (0.0%) | 8 (0.0%) | 2,681 (0.0%) | 359 (0.0%) |
+| P25 | 57,126 (0.1%) | 1,312 (0.1%) | 4,048 (0.1%) | 219,950 (0.1%) | 3,759 (0.1%) | 14,254 (0.1%) | 38,321 (0.1%) | 33,540 (0.1%) | 46,539 (0.1%) |
+| P50 | 126,862 (0.3%) | 3,325 (0.2%) | 8,365 (0.2%) | 555,499 (0.2%) | 8,815 (0.2%) | 31,188 (0.2%) | 75,596 (0.2%) | 71,384 (0.2%) | 110,129 (0.2%) |
+| P75 | 253,922 (0.6%) | 7,524 (0.4%) | 19,326 (0.4%) | 1,131,444 (0.4%) | 19,582 (0.4%) | 72,256 (0.4%) | 168,709 (0.4%) | 153,408 (0.3%) | 228,271 (0.4%) |
+| Max | 2,975,981 (6.6%) | 286,242 (15.8%) | 784,221 (17.9%) | 49,001,275 (15.9%) | 491,750 (10.6%) | 2,536,198 (15.7%) | 5,432,492 (14.1%) | 11,778,807 (25.8%) | 9,160,871 (15.3%) |
+
+This table shows that on average the most frequent tag accounts for 15.3% of the USAS labels and the 75% least frequent USAS tag classes make up per USAS tag class at most 0.4% of the USAS labels on average.
+
+### Filtering Funnel (FineWiki → Final Dataset)
+
+Of every FineWiki article considered per language, the vast majority are removed for not being
+rated Good/Featured; the remainder are then thinned further by the held-out test-set filter,
+minimum-word filter, and exact/MinHash de-duplication:
+
+| Language | Good/Featured | Test URL | Min words | Exact dedup | MinHash dedup | Total removed | Kept |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Chinese | 1,291,263 | 0 | 1,526 | 196 | 155 | 1,293,140 | 2,815 (0.217%) |
+| Danish | 291,764 | 0 | 0 | 7 | 3 | 291,774 | 187 (0.064%) |
+| Dutch | 2,072,477 | 0 | 0 | 5 | 5 | 2,072,487 | 378 (0.0182%) |
+| English | 6,562,224 | 4 | 6 | 1,608 | 1,571 | 6,565,413 | 49,242 (0.744%) |
+| Finnish | 571,963 | 0 | 0 | 30 | 42 | 572,035 | 865 (0.151%) |
+| Italian | 1,798,167 | 0 | 0 | 178 | 252 | 1,798,597 | 1,162 (0.0646%) |
+| Portuguese | 1,131,646 | 0 | 0 | 167 | 100 | 1,131,913 | 3,470 (0.306%) |
+| Spanish | 1,943,867 | 0 | 0 | 265 | 243 | 1,944,375 | 4,590 (0.236%) |
+
+A final post-hoc de-duplication, based on th Wikipedia Page ID (keeping the highest-version
+duplicate and rebalancing the train/validation split) creates the final published article counts shown in [Overview](#overview) above:
+
+| Language | Documents After Filtering | Final Articles | Dropped | Dropped (%) |
+| :--- | ---: | ---: | ---: | ---: |
+| Chinese | 2,815 | 2,807 | 8 | 0.28 |
+| Danish | 187 | 187 | 0 | 0.00 |
+| Dutch | 378 | 378 | 0 | 0.00 |
+| English | 49,242 | 49,218 | 24 | 0.05 |
+| Finnish | 865 | 865 | 0 | 0.00 |
+| Italian | 1,162 | 1,161 | 1 | 0.09 |
+| Portuguese | 3,470 | 3,469 | 1 | 0.03 |
+| Spanish | 4,590 | 4,581 | 9 | 0.20 |
+| **Total (matched languages)** | **62,709** | **62,666** | **43** | **0.07** |
 
 ## License
 
